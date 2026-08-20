@@ -25,5 +25,5 @@ float spec = dot(n,h);
 spec = clamp(spec, 0.0, 1.0);
 spec = pow(spec, 20.0);
 color.rgb += vec3(1.0, 1.0, 1.0) * spec * 3.0;
-color.a=1;
+color.a=1.0;
 }
