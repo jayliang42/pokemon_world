@@ -578,7 +578,7 @@ public:
 		char filepath[1000];
 
 		// texture 1
-		string str = resourceDirectory + "/Texture/storm.jpg";
+		string str = resourceDirectory + "/Texture/sky.jpg";
 		strcpy(filepath, str.c_str());
 		unsigned char *data = stbi_load(filepath, &width, &height, &channels, 4);
 		glGenTextures(1, &Texture);
