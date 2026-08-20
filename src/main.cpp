@@ -4,7 +4,14 @@ Modified by: <Zhisong Liang>
 */
 
 #include <iostream>
-#include <glad/glad.h>
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <ctime>
+#include <fstream>
+#include <limits>
+#include <sstream>
+#include "GLCompat.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "GLSL.h"
@@ -17,19 +24,23 @@ Modified by: <Zhisong Liang>
 // value_ptr for glm
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 using namespace std;
 using namespace glm;
 shared_ptr<Shape> shape;
 shared_ptr<Shape> umbreon;
 shared_ptr<Shape> charizard;
 
-#define SPEED 4
-#define NUM_POKEMON 100
-#define GRAVITY 9.8
-#define pokeballLimit 10
+constexpr float SPEED = 4.0f;
+constexpr int NUM_POKEMON = 100;
+constexpr int FLYING_POKEMON = NUM_POKEMON / 5;
+constexpr int STARTING_POKEBALLS = 10;
+constexpr int CAPTURE_GOAL = 5;
 vec3 mypos;
 Pokemon umbreons[NUM_POKEMON];
-Pokemon charizards[NUM_POKEMON / 5];
+Pokemon charizards[FLYING_POKEMON];
 
 double get_last_elapsed_time()
 {
@@ -48,11 +59,14 @@ public:
 	int gravityFlag = 0;
 	camera()
 	{
-		w = a = s = d = 0;
+		w = a = s = d = q = e = z = x = c = v = b = n = m = space = shift = 0;
 		pos = rot = glm::vec3(0, 0, 0);
+		inverseR = glm::mat4(1.0f);
 	}
 	glm::mat4 process(double ftime)
 	{
+		// Prevent a breakpoint or a minimized window from causing a huge jump.
+		ftime = std::max(0.0, std::min(ftime, 0.05));
 		float speed = 0;
 		float speed2 = 0;
 
@@ -134,6 +148,122 @@ public:
 	// texture data
 	GLuint Texture, grassTexture, HeightTex, PokeballTex, fireTex, Texture5;
 	GLuint grayTex;
+	std::string resourceDirectory;
+	int caughtCount = 0;
+	int pokeballs = STARTING_POKEBALLS;
+	bool captureRequested = false;
+	bool resetRequested = false;
+	bool gameFinished = false;
+	std::string statusMessage = "Explore the field and find a Pokemon.";
+
+	void updateWindowTitle()
+	{
+		if (!windowManager || !windowManager->getHandle())
+		{
+			return;
+		}
+
+		std::ostringstream title;
+		title << "Pokemon World | W/S move  A/D turn  Q/E/Space fly  Z gravity  C catch  R reset"
+		      << " | Caught " << caughtCount << "/" << CAPTURE_GOAL
+		      << " | Poke Balls " << pokeballs;
+		if (!statusMessage.empty())
+		{
+			title << " | " << statusMessage;
+		}
+		glfwSetWindowTitle(windowManager->getHandle(), title.str().c_str());
+	}
+
+	void setStatus(const std::string &message)
+	{
+		statusMessage = message;
+		updateWindowTitle();
+	}
+
+	void resetGame()
+	{
+		for (int i = 0; i < NUM_POKEMON; ++i)
+		{
+			umbreons[i] = Pokemon(0, i);
+		}
+		for (int i = 0; i < FLYING_POKEMON; ++i)
+		{
+			charizards[i] = Pokemon(1, i);
+		}
+
+		mycam.pos = glm::vec3(0.0f);
+		mycam.rot = glm::vec3(0.0f);
+		mycam.gravityFlag = 0;
+		mypos = glm::vec3(0.0f);
+		caughtCount = 0;
+		pokeballs = STARTING_POKEBALLS;
+		captureRequested = false;
+		resetRequested = false;
+		gameFinished = false;
+		setStatus("Explore the field and find a Pokemon.");
+	}
+
+	void captureNearestPokemon()
+	{
+		if (gameFinished)
+		{
+			return;
+		}
+		if (pokeballs <= 0)
+		{
+			gameFinished = true;
+			setStatus("Out of Poke Balls. Press R to try again.");
+			return;
+		}
+
+		Pokemon *target = nullptr;
+		float targetDistance = std::numeric_limits<float>::max();
+		auto consider = [&](Pokemon &candidate, float captureRange) {
+			if (candidate.getCaught())
+			{
+				return;
+			}
+			float distance = glm::distance(mypos, candidate.getPos());
+			if (distance <= captureRange && distance < targetDistance)
+			{
+				target = &candidate;
+				targetDistance = distance;
+			}
+		};
+
+		for (int i = 0; i < NUM_POKEMON; ++i)
+		{
+			consider(umbreons[i], 5.0f);
+		}
+		for (int i = 0; i < FLYING_POKEMON; ++i)
+		{
+			consider(charizards[i], 12.0f);
+		}
+
+		if (!target)
+		{
+			setStatus("No Pokemon in range. Move closer and press C.");
+			return;
+		}
+
+		target->setCaught(1);
+		--pokeballs;
+		++caughtCount;
+		if (caughtCount >= CAPTURE_GOAL)
+		{
+			gameFinished = true;
+			setStatus("Research complete! Press R to play again.");
+		}
+		else if (pokeballs == 0)
+		{
+			gameFinished = true;
+			setStatus("Out of Poke Balls before the goal. Press R to retry.");
+		}
+		else
+		{
+			setStatus("Captured a Pokemon!");
+		}
+	}
 
 	void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
 	{
@@ -194,7 +324,7 @@ public:
 		{
 			mycam.z = 1;
 		}
-		if (key == GLFW_KEY_X && action == GLFW_RELEASE)
+		if (key == GLFW_KEY_Z && action == GLFW_RELEASE)
 		{
 			mycam.z = 0;
 		}
@@ -208,11 +338,11 @@ public:
 		}
 		if (key == GLFW_KEY_C && action == GLFW_PRESS)
 		{
-			mycam.c = 1;
+			captureRequested = true;
 		}
-		if (key == GLFW_KEY_C && action == GLFW_RELEASE)
+		if (key == GLFW_KEY_R && action == GLFW_PRESS)
 		{
-			mycam.c = 0;
+			resetRequested = true;
 		}
 	}
 
@@ -320,7 +450,7 @@ public:
 			// unmbreonPos[i].z = -rand() / (float)RAND_MAX * 100;
 		}
 
-		for (int i = 0; i < NUM_POKEMON / 5; i++)
+		for (int i = 0; i < FLYING_POKEMON; i++)
 		{
 			charizards[i] = Pokemon(1, i);
 			// initialize the pokemon
@@ -413,7 +543,6 @@ public:
 
 		glBindVertexArray(0);
 
-		string resourceDirectory = "../../resources";
 		// Initialize mesh.
 		shape = make_shared<Shape>();
 		shape->loadMesh(resourceDirectory + "/sphere.obj");
@@ -558,11 +687,13 @@ public:
 
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		updateWindowTitle();
 	}
 
 	// General OGL initialization - set OGL state here
 	void init(const std::string &resourceDirectory)
 	{
+		this->resourceDirectory = resourceDirectory;
 		GLSL::checkVersion();
 
 		// Set background color.
@@ -667,6 +798,10 @@ public:
 		// Get current frame buffer size.
 		int width, height;
 		glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
+		if (width <= 0 || height <= 0)
+		{
+			return;
+		}
 		float aspect = width / (float)height;
 		glViewport(0, 0, width, height);
 
@@ -687,6 +822,16 @@ public:
 		}
 		// ...but we overwrite it (optional) with a perspective projection.
 		P = glm::perspective((float)(3.14159 / 4.), (float)((float)width / (float)height), 0.1f, 1000.0f); // so much type casting... GLM metods are quite funny ones
+		if (resetRequested)
+		{
+			resetGame();
+		}
+		glm::mat4 playerView = mycam.process(frametime);
+		if (captureRequested)
+		{
+			captureNearestPokemon();
+			captureRequested = false;
+		}
 
 		// animation with the model matrix:
 		static float w = 0.0;
@@ -720,7 +865,7 @@ public:
 		prog->unbind();
 
 		heightshader->bind();
-		V = mycam.process(frametime);
+		V = playerView;
 		// glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 		glm::mat4 TransY = glm::translate(glm::mat4(1.0f), glm::vec3(-50.0f, 0.0f, -50));
 		M = TransY;
@@ -760,28 +905,8 @@ public:
 		glBindTexture(GL_TEXTURE_2D, PokeballTex);
 
 		S = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f, 0.1f, 0.1f));
-		// calculate how many pokemon been caught
-		int count = 0;
-
-		for (int i = 0; i < NUM_POKEMON; i++)
-		{
-			if (umbreons[i].getCaught() == 1)
-			{
-				cout << umbreons[i].getID() << " umbreon get caught" << endl;
-				count++;
-			}
-		}
-
-		for (int i = 0; i < NUM_POKEMON / 5; i++)
-		{
-			if (charizards[i].getCaught() == 1)
-			{
-				cout << charizards[i].getID() << " charizards get caught" << endl;
-				count++;
-			}
-		}
-
-		for (int i = 0; i < count; i++)
+		// Show the remaining Poke Balls as a small in-world inventory.
+		for (int i = 0; i < pokeballs; i++)
 		{
 			mat4 TranPokeball = glm::translate(glm::mat4(1.0f), glm::vec3(1.8f, 1.0f - i * 0.1f, 0.0f));
 			M = TransZ * TranPokeball * S * Vi;
@@ -824,8 +949,8 @@ public:
 		glBindTexture(GL_TEXTURE_2D, Texture5);
 		glUniformMatrix4fv(pokemon->getUniform("P"), 1, GL_FALSE, &P[0][0]);
 		glUniformMatrix4fv(pokemon->getUniform("V"), 1, GL_FALSE, &V[0][0]);
-		glUniform3fv(heightshader->getUniform("camoff"), 1, &offset[0]);
-		glUniform3fv(heightshader->getUniform("campos"), 1, &mycam.pos[0]);
+		glUniform3fv(pokemon->getUniform("camoff"), 1, &offset[0]);
+		glUniform3fv(pokemon->getUniform("campos"), 1, &mycam.pos[0]);
 		// rotate x 180 degree
 		mat4 R = glm::rotate(glm::mat4(1.0f), 3.14f, glm::vec3(0.0f, 1.0f, 0.0f));
 		M = TransZ * T * R * S;
@@ -836,7 +961,7 @@ public:
 
 		pokemon2->bind();
 		glUniformMatrix4fv(pokemon2->getUniform("P"), 1, GL_FALSE, &P[0][0]);
-		V = mycam.process(frametime);
+		V = playerView;
 		glUniformMatrix4fv(pokemon2->getUniform("V"), 1, GL_FALSE, &V[0][0]);
 		// rotate Y 90 degree
 		RotateY = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(-1.0f, 0.0f, 0.0f));
@@ -856,16 +981,11 @@ public:
 				continue;
 			}
 
-			umbreons[i].update(i);
+			umbreons[i].update(frametime);
 
 			if (distance > 50)
 			{
 				continue;
-			}
-			// if mewtwo position is close to umbreon, then flag it to be caught
-			if (mycam.c == 1 && abs(mypos.x - umbreons[i].getPos().x) < 2 && abs(mypos.z - umbreons[i].getPos().z) < 2 && abs(mypos.y - umbreons[i].getPos().y + 4.5) < 2)
-			{
-				umbreons[i].setCaught(1);
 			}
 			T = glm::translate(glm::mat4(1.0f), glm::vec3(umbreons[i].getPos().x, umbreons[i].getPos().y + 0.2f, umbreons[i].getPos().z));
 			M = T * S;
@@ -878,19 +998,14 @@ public:
 		// charizard
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, fireTex);
-		for (int i = 0; i < NUM_POKEMON / 5; i++)
+		for (int i = 0; i < FLYING_POKEMON; i++)
 		{
 			float distance = sqrt(pow(mypos.x - charizards[i].getPos().x, 2) + pow(mypos.z - charizards[i].getPos().z, 2));
 			if (charizards[i].getCaught() == 1)
 			{
 				continue;
 			}
-			charizards[i].update(i);
-			// if my position is close to charizard, then flag it to be caught
-			if (mycam.c == 1 && abs(mypos.x - charizards[i].getPos().x) < 15 && abs(mypos.z - charizards[i].getPos().z) < 15 && abs(mypos.y - charizards[i].getPos().y + 4.5) < 10)
-			{
-				charizards[i].setCaught(1);
-			}
+			charizards[i].update(frametime);
 			if (distance > 100)
 			{
 				continue;
@@ -904,15 +1019,42 @@ public:
 
 		pokemon2->unbind();
 	}
+
+	void frame()
+	{
+		render();
+		glfwSwapBuffers(windowManager->getHandle());
+		glfwPollEvents();
+	}
 };
+#ifdef __EMSCRIPTEN__
+void webMainLoop(void *userData)
+{
+	static_cast<Application *>(userData)->frame();
+}
+#endif
 //******************************************************************************************
 int main(int argc, char **argv)
 {
 	srand(time(NULL));
-	std::string resourceDir = "../../resources"; // Where the resources are loaded from
+	std::string resourceDir = "resources"; // Where the resources are loaded from
 	if (argc >= 2)
 	{
 		resourceDir = argv[1];
+	}
+	auto hasResources = [](const std::string &directory) {
+		std::ifstream sphere(directory + "/sphere.obj");
+		return sphere.good();
+	};
+	if (argc < 2 && !hasResources(resourceDir))
+	{
+		resourceDir = "../resources";
+	}
+	if (!hasResources(resourceDir))
+	{
+		std::cerr << "Resource directory not found: " << resourceDir << std::endl;
+		std::cerr << "Run from the project root or pass the resources path as an argument." << std::endl;
+		return 1;
 	}
 
 	Application *application = new Application();
@@ -920,7 +1062,20 @@ int main(int argc, char **argv)
 	/* your main will always include a similar set up to establish your window
 		and GL context, etc. */
 	WindowManager *windowManager = new WindowManager();
-	windowManager->init(1920, 1080);
+#ifdef __EMSCRIPTEN__
+	const int windowWidth = 1280;
+	const int windowHeight = 720;
+#else
+	const int windowWidth = 1920;
+	const int windowHeight = 1080;
+#endif
+	if (!windowManager->init(windowWidth, windowHeight))
+	{
+		std::cerr << "Unable to initialize the game window." << std::endl;
+		delete windowManager;
+		delete application;
+		return 1;
+	}
 	windowManager->setEventCallbacks(application);
 	application->windowManager = windowManager;
 
@@ -930,19 +1085,18 @@ int main(int argc, char **argv)
 	application->init(resourceDir);
 	application->initGeom();
 
-	// Loop until the user closes the window.
+	// Native builds own the event loop. Browsers must return control to the
+	// JavaScript event loop, so Emscripten calls one frame at a time instead.
+#ifdef __EMSCRIPTEN__
+	emscripten_set_main_loop_arg(webMainLoop, application, 0, 1);
+#else
 	while (!glfwWindowShouldClose(windowManager->getHandle()))
 	{
-		// Render scene.
-		application->render();
-
-		// Swap front and back buffers.
-		glfwSwapBuffers(windowManager->getHandle());
-		// Poll for and process events.
-		glfwPollEvents();
+		application->frame();
 	}
 
 	// Quit program.
 	windowManager->shutdown();
+#endif
 	return 0;
 }

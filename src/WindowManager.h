@@ -19,7 +19,9 @@
 #ifndef LAB471_WINDOW_H_INCLUDED
 #define LAB471_WINDOW_H_INCLUDED
 
-#include <glad/glad.h>
+#ifndef GLFW_INCLUDE_NONE
+#define GLFW_INCLUDE_NONE
+#endif
 #include <GLFW/glfw3.h>
 
 

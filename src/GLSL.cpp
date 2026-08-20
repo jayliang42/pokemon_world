@@ -25,10 +25,12 @@ const char * errorString(GLenum err)
 		return "Invalid value";
 	case GL_INVALID_OPERATION:
 		return "Invalid operation";
+#ifndef __EMSCRIPTEN__
 	case GL_STACK_OVERFLOW:
 		return "Stack overflow";
 	case GL_STACK_UNDERFLOW:
 		return "Stack underflow";
+#endif
 	case GL_OUT_OF_MEMORY:
 		return "Out of memory";
 	default:
@@ -106,6 +108,16 @@ void printProgramInfoLog(GLuint program)
 
 void checkVersion()
 {
+	#ifdef __EMSCRIPTEN__
+	const char *versionString = (const char *) glGetString(GL_VERSION);
+	if (versionString == NULL)
+	{
+		printf("Unable to query the WebGL version.\n");
+		exit(1);
+	}
+	return;
+	#endif
+
 	int major, minor;
 	major = minor = 0;
 	const char *verstr = (const char *) glGetString(GL_VERSION);

@@ -75,4 +75,52 @@ Other versions of Visual Studio are listed on the CMake page
 - To add a commandline argument (`../resources`), right-click on `final` in
   the project explorer and then click on "Properties" and then click to
   "Debugging."
-# pokemon_world
+# Pokemon World
+
+This is a small OpenGL exploration game: fly around the field, find roaming
+Pokemon, and complete a short research assignment by catching five of them.
+
+**[Play the browser version](https://jayliang42.github.io/pokemon_world/)**
+
+## Build and run
+
+From the project root:
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+./build/final ./resources
+```
+
+If you run the executable from inside `build/`, pass `../resources` instead.
+
+## Browser version on GitHub Pages
+
+The repository also contains a WebAssembly/WebGL2 build. After pushing to the
+`main` branch, `.github/workflows/pages.yml` uses Emscripten to build the game
+and deploys the generated page to GitHub Pages.
+
+In the repository settings, set **Pages → Build and deployment → Source** to
+**GitHub Actions**. The published URL will be:
+
+```text
+https://jayliang42.github.io/pokemon_world/
+```
+
+The native build remains available for local development. The browser build
+uses the same models, textures, movement, and capture rules, but runs its main
+loop through the browser animation lifecycle.
+
+## Controls
+
+- `W` / `S`: move forward and backward
+- `A` / `D`: turn left and right
+- `Q` / `E` or `Space`: move vertically
+- `Z`: enable gravity and return toward the field
+- `C`: catch the nearest Pokemon in range
+- `R`: restart the research assignment
+- `Esc`: quit
+
+You start with ten Poke Balls. Catch five Pokemon to win; using all ten balls
+before reaching the goal ends the round. The window title shows the current
+progress and the remaining inventory.

@@ -40,11 +40,19 @@ bool WindowManager::init(int const width, int const height)
 		return false;
 	}
 
-	//request the highest possible version of OGL - important for mac
+	// Request a desktop core context natively and a WebGL2-compatible OpenGL
+	// ES context when this source is compiled by Emscripten.
+#ifdef __EMSCRIPTEN__
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+#else
+	// request the highest possible version of OGL - important for mac
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+#endif
 
 	// Create a windowed mode window and its OpenGL context.
 	windowHandle = glfwCreateWindow(width, height, "hello triangle", nullptr, nullptr);
@@ -56,12 +64,15 @@ bool WindowManager::init(int const width, int const height)
 
 	glfwMakeContextCurrent(windowHandle);
 
-	// Initialize GLAD
+	// Native builds load desktop OpenGL symbols through GLAD. Emscripten's
+	// WebGL context exposes the GLES3 entry points directly.
+#ifndef __EMSCRIPTEN__
 	if (!gladLoadGL())
 	{
 		std::cerr << "Failed to initialize GLAD" << std::endl;
 		return false;
 	}
+#endif
 
 	std::cout << "OpenGL version: " << glGetString(GL_VERSION) << std::endl;
 	std::cout << "GLSL version: " << glGetString(GL_SHADING_LANGUAGE_VERSION) << std::endl;

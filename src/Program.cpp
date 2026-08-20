@@ -6,6 +6,34 @@
 
 #include "GLSL.h"
 
+#ifdef __EMSCRIPTEN__
+static std::string toWebGL2Shader(std::string source)
+{
+	const std::string versionMarker = "#version";
+	const std::string::size_type versionStart = source.find(versionMarker);
+	if (versionStart == std::string::npos)
+	{
+		return source;
+	}
+
+	const std::string::size_type lineEnd = source.find('\n', versionStart);
+	const std::string::size_type versionLength = lineEnd == std::string::npos
+		? source.size() - versionStart
+		: lineEnd - versionStart;
+	source.replace(versionStart, versionLength, "#version 300 es");
+	const std::string::size_type precisionPosition = source.find('\n', versionStart);
+	if (precisionPosition == std::string::npos)
+	{
+		source += "\nprecision highp float;\n";
+	}
+	else
+	{
+		source.insert(precisionPosition + 1, "precision highp float;\n");
+	}
+	return source;
+}
+#endif
+
 
 std::string readFileAsString(const std::string &fileName)
 {
@@ -38,6 +66,10 @@ bool Program::init()
 	// Read shader sources
 	std::string vShaderString = readFileAsString(vShaderName);
 	std::string fShaderString = readFileAsString(fShaderName);
+#ifdef __EMSCRIPTEN__
+	vShaderString = toWebGL2Shader(vShaderString);
+	fShaderString = toWebGL2Shader(fShaderString);
+#endif
 	const char *vshader = vShaderString.c_str();
 	const char *fshader = fShaderString.c_str();
 	CHECKED_GL_CALL(glShaderSource(VS, 1, &vshader, NULL));

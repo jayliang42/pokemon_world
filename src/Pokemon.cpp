@@ -1,6 +1,7 @@
-#include <iostream>
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <glm/glm.hpp>
-using namespace std;
 
 // give it a random destination and let it walk there
 // if reach destination, give it a new destination
@@ -22,61 +23,58 @@ private:
 public:
     static float random(float min, float max)
     {
-        return ((float)rand() / RAND_MAX) * (max - min) + min;
+        return (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) * (max - min) + min;
     }
 
     Pokemon()
-    {
-        x = random(-100, 100);
-        y = random(20, 50);
-        z = random(-100, 100);
-        speed = 0.01;
-        beenCaught = 0;
-    }
+        : x(0.0f), y(0.0f), z(0.0f), destinationX(0.0f), destinationY(0.0f),
+          destinationZ(0.0f), speed(0.0f), direction(0.0f), beenCaught(0),
+          flyPokemon(0), pokemonID(-1) {}
 
     ~Pokemon() {}
 
-    Pokemon(int flyPokemon, int pokemonID)
+    Pokemon(int flyPokemon, int pokemonID) : Pokemon()
     {
         this->pokemonID = pokemonID;
         this->flyPokemon = flyPokemon;
-        x = random(-100, 100);
-        z = random(-100, 100);
+        x = random(-45, 45);
+        z = random(-45, 45);
 
         beenCaught = 0;
 
         if (flyPokemon)
         {
             y = random(15, 35);
-            float newY = random(-10, 10);
-            speed = 0.05;
+            speed = 5.0f;
             setDestination(x + random(-20, 20),
-                           y + newY,
+                           random(15, 35),
                            z + random(-20, 20));
         }
         else
         {
             y = 0;
-            speed = 0.01;
+            speed = 2.5f;
             setDestination(x + random(-5, 5),
                            y + 0,
                            z + random(-5, 5));
         }
 
-        cout << "Pokemon " << pokemonID << " created at " << x << " " << y << " " << z << endl;
-        cout << "Destination is " << destinationX << " " << destinationY << " " << destinationZ << endl;
     }
 
-    void update(int pokemonID)
+    void update(double deltaSeconds)
     {
+        if (beenCaught)
+        {
+            return;
+        }
+
+        deltaSeconds = std::max(0.0, std::min(deltaSeconds, 0.05));
         if (isAtDestination())
         {
             if (flyPokemon)
             {
-                float newY = random(-10, 10);
-
                 setDestination(x + random(-20, 20),
-                               y + newY,
+                               random(15, 35),
                                z + random(-20, 20));
             }
             else
@@ -86,13 +84,7 @@ public:
                                z + random(-5, 5));
             }
         }
-        // just address a bug, solve it later
-        if (flyPokemon && y < 10)
-        {
-            y = 20;
-            setDestination(x, y, z);
-        }
-        walkToDestination(pokemonID);
+        walkToDestination(deltaSeconds);
     }
 
     void setCaught(int flag) { beenCaught = flag; }
@@ -101,32 +93,38 @@ public:
 
     void setDestination(float x, float y, float z)
     {
-        destinationX = x;
-        destinationY = y;
-        destinationZ = z;
+        destinationX = std::max(-48.0f, std::min(48.0f, x));
+        destinationY = std::max(0.0f, std::min(35.0f, y));
+        destinationZ = std::max(-48.0f, std::min(48.0f, z));
     }
 
     glm::vec3 getPos() { return glm::vec3(x, y, z); }
 
-    void walkToDestination(int pokemonID)
+    void walkToDestination(double deltaSeconds)
     {
         // walk to destination from a point walk to another point
 
         // get the direction
         glm::vec3 direction = glm::vec3(destinationX - x, destinationY - y, destinationZ - z);
         // normalize the direction
-        direction = normalize(direction);
-        // // move the pokemon
-        x += direction.x * speed;
-        y += direction.y * speed;
-        z += direction.z * speed;
+        float distance = glm::length(direction);
+        if (distance <= 0.001f)
+        {
+            return;
+        }
+
+        direction /= distance;
+        float step = std::min(speed * static_cast<float>(deltaSeconds), distance);
+        x += direction.x * step;
+        y += direction.y * step;
+        z += direction.z * step;
     }
 
     int isAtDestination()
     {
         // check if reach destination
-        if ((abs(x - destinationX) < 0.5) && (abs(y - destinationY) < 0.5) &&
-            (abs(z - destinationZ) < 0.5))
+        if ((std::fabs(x - destinationX) < 0.5f) && (std::fabs(y - destinationY) < 0.5f) &&
+            (std::fabs(z - destinationZ) < 0.5f))
         {
             return 1;
         }

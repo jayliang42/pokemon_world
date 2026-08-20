@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pokemon World</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #09111f;
+      color: #eef6ff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 15% 0%, rgba(61, 145, 255, 0.22), transparent 34rem),
+        linear-gradient(145deg, #09111f 0%, #101b31 48%, #0d1322 100%);
+    }
+
+    .page {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 36px;
+    }
+
+    .header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 18px;
+    }
+
+    h1, p { margin: 0; }
+    h1 { letter-spacing: -0.04em; font-size: clamp(2rem, 5vw, 3.8rem); }
+    .subtitle { color: #a9bad3; margin-top: 7px; }
+    .badge {
+      border: 1px solid rgba(137, 196, 255, 0.38);
+      border-radius: 999px;
+      color: #bfe2ff;
+      padding: 8px 12px;
+      white-space: nowrap;
+      font-size: 0.84rem;
+    }
+
+    .game-card {
+      overflow: hidden;
+      border: 1px solid rgba(166, 203, 255, 0.2);
+      border-radius: 18px;
+      background: rgba(10, 20, 38, 0.8);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+    }
+
+    #canvas {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      min-height: 360px;
+      background: #172238;
+      outline: none;
+    }
+
+    #status {
+      min-height: 22px;
+      padding: 10px 16px;
+      color: #9fb3ce;
+      font-size: 0.86rem;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .control {
+      padding: 14px 16px;
+      border: 1px solid rgba(166, 203, 255, 0.14);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.045);
+      color: #b8c7db;
+      line-height: 1.45;
+    }
+
+    kbd {
+      display: inline-block;
+      margin-right: 5px;
+      padding: 2px 7px;
+      border: 1px solid rgba(196, 221, 255, 0.3);
+      border-bottom-width: 2px;
+      border-radius: 5px;
+      color: #f3f8ff;
+      background: rgba(255, 255, 255, 0.08);
+      font-size: 0.8rem;
+    }
+
+    @media (max-width: 720px) {
+      .header { display: block; }
+      .badge { display: inline-block; margin-top: 14px; }
+      .controls { grid-template-columns: 1fr; }
+      #canvas { min-height: 220px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="header">
+      <div>
+        <h1>Pokemon World</h1>
+        <p class="subtitle">Explore the field. Catch five Pokemon. Finish the research assignment.</p>
+      </div>
+      <div class="badge">WebAssembly · WebGL2</div>
+    </header>
+
+    <section class="game-card">
+      <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+      <div id="status">Loading the field...</div>
+    </section>
+
+    <section class="controls" aria-label="Game controls">
+      <div class="control"><kbd>W</kbd><kbd>S</kbd> Move forward / backward</div>
+      <div class="control"><kbd>A</kbd><kbd>D</kbd> Turn left / right</div>
+      <div class="control"><kbd>Q</kbd><kbd>E</kbd><kbd>Space</kbd> Fly vertically</div>
+      <div class="control"><kbd>Z</kbd> Enable gravity</div>
+      <div class="control"><kbd>C</kbd> Catch the nearest Pokemon</div>
+      <div class="control"><kbd>R</kbd> Restart · <kbd>Esc</kbd> Quit</div>
+    </section>
+  </main>
+
+  <script>
+    const statusElement = document.getElementById('status');
+    var Module = {
+      canvas: document.getElementById('canvas'),
+      setStatus: function (text) {
+        statusElement.textContent = text || 'Ready';
+      },
+      print: function (text) {
+        statusElement.textContent = text;
+      },
+      printErr: function (text) {
+        statusElement.textContent = text;
+      }
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>
