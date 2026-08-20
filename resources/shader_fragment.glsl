@@ -10,20 +10,17 @@ uniform sampler2D tex2;
 
 void main()
 {
-vec3 n = normalize(vertex_normal);
-vec3 lp=vec3(10,-20,-100);
-vec3 ld = normalize(vertex_pos - lp);
-float diffuse = dot(n,ld);
+vec3 skyDirection = normalize(vertex_pos);
+float horizon = clamp((skyDirection.y + 0.18) / 0.9, 0.0, 1.0);
+vec3 horizonColor = vec3(0.74, 0.91, 1.0);
+vec3 zenithColor = vec3(0.12, 0.48, 0.94);
+vec3 skyColor = mix(horizonColor, zenithColor, smoothstep(0.0, 1.0, horizon));
 
-color.rgb = texture(tex, vertex_tex).rgb;
+float cloudLayerA = 0.5 + 0.5 * sin(skyDirection.x * 10.0 + skyDirection.z * 6.0);
+float cloudLayerB = 0.5 + 0.5 * sin(skyDirection.x * 25.0 - skyDirection.z * 17.0 + skyDirection.y * 13.0);
+float cloudNoise = cloudLayerA * 0.6 + cloudLayerB * 0.4;
+float cloudMask = smoothstep(0.62, 0.82, cloudNoise) * smoothstep(0.08, 0.62, skyDirection.y);
+skyColor = mix(skyColor, vec3(1.0), cloudMask * 0.5);
 
-color.rgb *= diffuse*0.7;
-
-vec3 cd = normalize(vertex_pos - campos);
-vec3 h = normalize(cd+ld);
-float spec = dot(n,h);
-spec = clamp(spec, 0.0, 1.0);
-spec = pow(spec, 20.0);
-color.rgb += vec3(1.0, 1.0, 1.0) * spec * 3.0;
-color.a=1.0;
+color = vec4(skyColor, 1.0);
 }

@@ -938,13 +938,10 @@ public:
 			}
 		}
 		V = mat4(1);
-		S = glm::scale(glm::mat4(1.0f), glm::vec3(0.4f, 0.4f, 0.4f));
-		mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
-
-		if (mycam.gravityFlag == 0)
-			T = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.25f + y, 2.0f));
-		else
-			T = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.25f, 2.0f));
+		S = glm::scale(glm::mat4(1.0f), glm::vec3(0.24f, 0.24f, 0.24f));
+		// Keep the player model in a stable camera-space layer instead of
+		// placing it almost on the near clipping plane.
+		mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.55f + y, -2.6f));
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, Texture5);
@@ -954,7 +951,7 @@ public:
 		glUniform3fv(pokemon->getUniform("campos"), 1, &mycam.pos[0]);
 		// rotate x 180 degree
 		mat4 R = glm::rotate(glm::mat4(1.0f), 3.14f, glm::vec3(0.0f, 1.0f, 0.0f));
-		M = TransZ * T * R * S;
+		M = T * R * S;
 		glUniformMatrix4fv(pokemon->getUniform("M"), 1, GL_FALSE, &M[0][0]);
 		charizard->draw(pokemon, false);
 		pokemon->unbind();
