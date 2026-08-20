@@ -634,8 +634,8 @@ public:
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 		glGenerateMipmap(GL_TEXTURE_2D);
 
-		// texture 5
-		str = resourceDirectory + "/Texture/fire2.jpeg";
+		// texture 5: the Charizard UV atlas that ships with the original model.
+		str = resourceDirectory + "/Texture/chariza.png";
 		strcpy(filepath, str.c_str());
 		data = stbi_load(filepath, &width, &height, &channels, 4);
 		glGenTextures(1, &fireTex);

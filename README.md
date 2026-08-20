@@ -118,6 +118,10 @@ low-poly wild companions come from Kenney's [Cube Pets](https://kenney.nl/assets
 pack and are released under CC0; the source license is included in
 `resources/pokemon/companions/License.txt`.
 
+The Charizard model uses the existing UV atlas at `resources/Texture/chariza.png`.
+The atlas includes an embedded attribution note to DeliRoko2, which is retained
+with the asset.
+
 ## Controls
 
 - `W` / `S`: move forward and backward
