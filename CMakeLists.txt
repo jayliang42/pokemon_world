@@ -33,7 +33,7 @@ add_executable(${CMAKE_PROJECT_NAME} ${SOURCES} ${HEADERS} ${GLSL})
 # desktop GLFW installation.
 if(EMSCRIPTEN)
   set(WEB_LINK_FLAGS
-      "-sUSE_GLFW=3 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2"
+      "-sUSE_GLFW=3 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sALLOW_MEMORY_GROWTH=1"
       "--preload-file=${CMAKE_SOURCE_DIR}/resources@/resources"
       "--shell-file=${CMAKE_SOURCE_DIR}/web/shell.html")
   string(REPLACE ";" " " WEB_LINK_FLAGS_STRING "${WEB_LINK_FLAGS}")
