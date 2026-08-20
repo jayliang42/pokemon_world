@@ -862,6 +862,7 @@ public:
 		glDisable(GL_DEPTH_TEST);
 		shape->draw(prog, false);
 		glEnable(GL_DEPTH_TEST);
+		GLSL::printOpenGLErrors("after sky", __FILE__, __LINE__);
 
 		prog->unbind();
 
@@ -887,6 +888,7 @@ public:
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, grassTexture);
 		glDrawElements(GL_TRIANGLES, MESHSIZE * MESHSIZE * 6, GL_UNSIGNED_SHORT, (void *)0);
+		GLSL::printOpenGLErrors("after terrain", __FILE__, __LINE__);
 
 		heightshader->unbind();
 
@@ -914,6 +916,7 @@ public:
 			glUniformMatrix4fv(prog2->getUniform("M"), 1, GL_FALSE, &M[0][0]);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, (void *)0);
 		}
+		GLSL::printOpenGLErrors("after pokeballs", __FILE__, __LINE__);
 
 		prog2->unbind();
 
@@ -957,6 +960,7 @@ public:
 		M = TransZ * T * R * S;
 		glUniformMatrix4fv(pokemon->getUniform("M"), 1, GL_FALSE, &M[0][0]);
 		charizard->draw(pokemon, false);
+		GLSL::printOpenGLErrors("after player", __FILE__, __LINE__);
 		pokemon->unbind();
 		/***main character***/
 
@@ -1017,6 +1021,7 @@ public:
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, (void *)0);
 			charizard->draw(pokemon2, false);
 		}
+		GLSL::printOpenGLErrors("after pokemon", __FILE__, __LINE__);
 
 		pokemon2->unbind();
 	}
