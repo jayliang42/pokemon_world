@@ -17,14 +17,14 @@ texcoords -= vec2(camoff.x,camoff.z)*t;
 
 vec3 heightcolor = texture(tex, texcoords).rgb;
 heightcolor.r = 0.1 + heightcolor.r*0.9;
-color.rgb = texture(tex2, texcoords*50).rgb * heightcolor.r;
+color.rgb = texture(tex2, texcoords * 50.0).rgb * heightcolor.r;
 color.a=1.0;
 
 float len = length(vertex_pos.xz+campos.xz);
 len-=41.0;
 len/=8.;
 len=clamp(len, 0.0, 1.0);
-color.a=1-len;
+color.a=1.0-len;
 
 
 }
