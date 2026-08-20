@@ -141,9 +141,10 @@
         statusElement.textContent = text || 'Ready';
       },
       print: function (text) {
-        statusElement.textContent = text;
+        console.log(text);
       },
       printErr: function (text) {
+        console.error(text);
         statusElement.textContent = text;
       }
     };

@@ -1022,6 +1022,15 @@ public:
 
 	void frame()
 	{
+		static bool reportedFirstFrame = false;
+		if (!reportedFirstFrame)
+		{
+			int width = 0;
+			int height = 0;
+			glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
+			std::cout << "[Pokemon World] First frame: framebuffer " << width << "x" << height << std::endl;
+			reportedFirstFrame = true;
+		}
 		render();
 		glfwSwapBuffers(windowManager->getHandle());
 		glfwPollEvents();
