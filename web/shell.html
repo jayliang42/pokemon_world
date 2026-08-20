@@ -137,6 +137,9 @@
     const statusElement = document.getElementById('status');
     var Module = {
       canvas: document.getElementById('canvas'),
+      locateFile: function (path) {
+        return path + '?rev=13e1039';
+      },
       setStatus: function (text) {
         statusElement.textContent = text || 'Ready';
       },
@@ -149,6 +152,6 @@
       }
     };
   </script>
-  <script async src="index.js?rev=13e1039"></script>
+  {{{ SCRIPT }}}
 </body>
 </html>
