@@ -127,7 +127,7 @@ with the asset.
 - `W` / `S`: move forward and backward
 - `A` / `D`: turn left and right
 - `Q` / `E` or `Space`: move vertically
-- `Z`: enable gravity and return toward the field
+- `Z`: toggle gravity and return toward the field
 - `C`: catch the nearest Pokemon in range
 - `R`: restart the research assignment
 - `Esc`: quit

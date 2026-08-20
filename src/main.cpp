@@ -36,6 +36,11 @@ shared_ptr<Shape> charizard;
 std::vector<std::shared_ptr<Shape>> companionShapes;
 
 constexpr float SPEED = 4.0f;
+constexpr float PLAYER_GROUND_Y = 0.0f;
+constexpr float PLAYER_MAX_ALTITUDE = 32.0f;
+constexpr float PLAYER_BOUNDARY = 48.0f;
+constexpr float VERTICAL_SPEED = 10.0f;
+constexpr float GRAVITY_ACCELERATION = 18.0f;
 constexpr int NUM_POKEMON = 100;
 constexpr int FLYING_POKEMON = NUM_POKEMON / 5;
 constexpr int STARTING_POKEBALLS = 10;
@@ -69,46 +74,14 @@ public:
 	{
 		// Prevent a breakpoint or a minimized window from causing a huge jump.
 		ftime = std::max(0.0, std::min(ftime, 0.05));
-		float speed = 0;
-		float speed2 = 0;
-
-		if (z == 1)
-		{
-			gravityFlag = 1;
-		}
-		else if (z == 0)
-		{
-			gravityFlag = 0;
-		}
-
-		if (gravityFlag == 1)
-		{
-			if (mypos.y > -4.4)
-			{
-				speed2 = SPEED * ftime;
-			}
-		}
-
+		float forwardStep = 0.0f;
 		if (w == 1)
 		{
-			speed = SPEED * ftime;
+			forwardStep = SPEED * static_cast<float>(ftime);
 		}
 		else if (s == 1)
 		{
-			speed = -SPEED * ftime;
-		}
-
-		if (e == 1)
-		{
-			// collision detection
-			if (mypos.y > -4.4)
-			{
-				speed2 = 3 * SPEED * ftime;
-			}
-		}
-		else if (q == 1 || space == 1)
-		{
-			speed2 = -SPEED * ftime;
+			forwardStep = -SPEED * static_cast<float>(ftime);
 		}
 		float yangle = 0;
 		if (a == 1)
@@ -117,10 +90,30 @@ public:
 			yangle = 3 * ftime;
 		rot.y += yangle;
 		glm::mat4 R = glm::rotate(glm::mat4(1), rot.y, glm::vec3(0, 1, 0));
-		glm::vec4 dir = glm::vec4(0, speed2, speed, 1);
-		dir = dir * R;
-		pos += glm::vec3(dir.x, dir.y, dir.z);
-		mypos = -pos;
+		glm::vec4 horizontalMovement = glm::vec4(0.0f, 0.0f, forwardStep, 0.0f) * R;
+		pos += glm::vec3(horizontalMovement.x, 0.0f, horizontalMovement.z);
+
+		// mypos is the player's world-space position; keep it inside the field.
+		glm::vec3 playerPosition = -pos;
+		float verticalStep = 0.0f;
+		if (q == 1 || space == 1)
+		{
+			verticalStep += VERTICAL_SPEED * static_cast<float>(ftime);
+		}
+		if (e == 1)
+		{
+			verticalStep -= VERTICAL_SPEED * static_cast<float>(ftime);
+		}
+		if (gravityFlag == 1)
+		{
+			verticalStep -= GRAVITY_ACCELERATION * static_cast<float>(ftime);
+		}
+		playerPosition.y += verticalStep;
+		playerPosition.x = std::max(-PLAYER_BOUNDARY, std::min(PLAYER_BOUNDARY, playerPosition.x));
+		playerPosition.y = std::max(PLAYER_GROUND_Y, std::min(PLAYER_MAX_ALTITUDE, playerPosition.y));
+		playerPosition.z = std::max(-PLAYER_BOUNDARY, std::min(PLAYER_BOUNDARY, playerPosition.z));
+		mypos = playerPosition;
+		pos = -playerPosition;
 		glm::mat4 T = glm::translate(glm::mat4(1), pos + glm::vec3(0, -5, 0));
 		inverseR = inverse(R);
 		return R * T;
@@ -166,7 +159,7 @@ public:
 		}
 
 		std::ostringstream title;
-		title << "Pokemon World | W/S move  A/D turn  Q/E/Space fly  Z gravity  C catch  R reset"
+		title << "Pokemon World | W/S move  A/D turn  Q/E/Space fly  Z toggle gravity  C catch  R reset"
 		      << " | Caught " << caughtCount << "/" << CAPTURE_GOAL
 		      << " | Poke Balls " << pokeballs;
 		if (!statusMessage.empty())
@@ -324,7 +317,8 @@ public:
 		}
 		if (key == GLFW_KEY_Z && action == GLFW_PRESS)
 		{
-			mycam.z = 1;
+			mycam.gravityFlag = mycam.gravityFlag == 0 ? 1 : 0;
+			setStatus(mycam.gravityFlag == 1 ? "Gravity enabled." : "Gravity disabled.");
 		}
 		if (key == GLFW_KEY_Z && action == GLFW_RELEASE)
 		{
