@@ -16,6 +16,6 @@ vec3 ld = normalize(vertex_pos - lp);
 float diffuse = dot(n,ld);
 
 vec4 tcol = texture(tex, vertex_tex);
-color = tcol + vec4(0.4,0.4,0.4,0.0);
+color = tcol;
 color.a = 1.0;
 }
