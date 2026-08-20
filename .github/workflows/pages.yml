@@ -40,6 +40,7 @@ jobs:
         run: |
           mkdir -p site
           cp build-web/index.* site/
+          sed -i "s#__BUILD_REVISION__#${GITHUB_SHA}#g; s#index.js#index.js?rev=${GITHUB_SHA}#g" site/index.html
           touch site/.nojekyll
 
       - name: Configure GitHub Pages
