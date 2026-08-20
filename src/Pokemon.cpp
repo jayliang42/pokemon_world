@@ -16,6 +16,9 @@ private:
     float destinationZ;
     float speed;
     float direction;
+    float heading;
+    float targetHeading;
+    float motionPhase;
     int beenCaught;
     int flyPokemon;
     int pokemonID;
@@ -28,7 +31,8 @@ public:
 
     Pokemon()
         : x(0.0f), y(0.0f), z(0.0f), destinationX(0.0f), destinationY(0.0f),
-          destinationZ(0.0f), speed(0.0f), direction(0.0f), beenCaught(0),
+          destinationZ(0.0f), speed(0.0f), direction(0.0f), heading(0.0f),
+          targetHeading(0.0f), motionPhase(0.0f), beenCaught(0),
           flyPokemon(0), pokemonID(-1) {}
 
     ~Pokemon() {}
@@ -37,6 +41,7 @@ public:
     {
         this->pokemonID = pokemonID;
         this->flyPokemon = flyPokemon;
+        motionPhase = static_cast<float>(pokemonID % 11) * 0.53f;
         x = random(-45, 45);
         z = random(-45, 45);
 
@@ -45,15 +50,15 @@ public:
         if (flyPokemon)
         {
             y = random(15, 35);
-            speed = 5.0f;
-            setDestination(x + random(-20, 20),
-                           random(15, 35),
-                           z + random(-20, 20));
+            speed = 3.2f;
+            setDestination(x + random(-16, 16),
+                           random(18, 30),
+                           z + random(-16, 16));
         }
         else
         {
             y = 0;
-            speed = 2.5f;
+            speed = 1.8f;
             setDestination(x + random(-5, 5),
                            y + 0,
                            z + random(-5, 5));
@@ -73,9 +78,9 @@ public:
         {
             if (flyPokemon)
             {
-                setDestination(x + random(-20, 20),
-                               random(15, 35),
-                               z + random(-20, 20));
+                setDestination(x + random(-16, 16),
+                               random(18, 30),
+                               z + random(-16, 16));
             }
             else
             {
@@ -96,9 +101,20 @@ public:
         destinationX = std::max(-48.0f, std::min(48.0f, x));
         destinationY = std::max(0.0f, std::min(35.0f, y));
         destinationZ = std::max(-48.0f, std::min(48.0f, z));
+
+        float horizontalX = destinationX - this->x;
+        float horizontalZ = destinationZ - this->z;
+        if (std::fabs(horizontalX) + std::fabs(horizontalZ) > 0.001f)
+        {
+            targetHeading = std::atan2(horizontalX, horizontalZ);
+        }
     }
 
     glm::vec3 getPos() { return glm::vec3(x, y, z); }
+
+    float getHeading() const { return heading; }
+
+    float getMotionPhase() const { return motionPhase; }
 
     void walkToDestination(double deltaSeconds)
     {
@@ -114,6 +130,18 @@ public:
         }
 
         direction /= distance;
+
+        float turn = targetHeading - heading;
+        while (turn > 3.1415926f)
+        {
+            turn -= 6.2831852f;
+        }
+        while (turn < -3.1415926f)
+        {
+            turn += 6.2831852f;
+        }
+        heading += turn * std::min(1.0f, static_cast<float>(deltaSeconds) * 4.0f);
+
         float step = std::min(speed * static_cast<float>(deltaSeconds), distance);
         x += direction.x * step;
         y += direction.y * step;

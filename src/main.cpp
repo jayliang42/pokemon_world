@@ -981,6 +981,7 @@ public:
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, grayTex);
+		float motionTime = static_cast<float>(glfwGetTime());
 		// umbreon
 		for (int i = 0; i < NUM_POKEMON; i++)
 		{
@@ -998,10 +999,12 @@ public:
 			{
 				continue;
 			}
-			T = glm::translate(glm::mat4(1.0f), glm::vec3(umbreons[i].getPos().x, umbreons[i].getPos().y + 0.2f, umbreons[i].getPos().z));
-			M = T * S;
+			vec3 wildPosition = umbreons[i].getPos();
+			wildPosition.y += 0.2f + 0.04f * std::sin(motionTime * 2.4f + umbreons[i].getMotionPhase());
+			T = glm::translate(glm::mat4(1.0f), wildPosition);
+			R = glm::rotate(glm::mat4(1.0f), umbreons[i].getHeading(), glm::vec3(0.0f, 1.0f, 0.0f));
+			M = T * R * S;
 			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE, &M[0][0]);
-			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, (void *)0);
 			shared_ptr<Shape> wildShape = companionShapes.empty()
 				? umbreon
 				: companionShapes[static_cast<size_t>(i) % companionShapes.size()];
@@ -1024,10 +1027,12 @@ public:
 			{
 				continue;
 			}
-			T = glm::translate(glm::mat4(1.0f), glm::vec3(charizards[i].getPos().x, charizards[i].getPos().y, charizards[i].getPos().z));
-			M = T * S;
+			vec3 flightPosition = charizards[i].getPos();
+			flightPosition.y += 0.45f * std::sin(motionTime * 1.8f + charizards[i].getMotionPhase());
+			T = glm::translate(glm::mat4(1.0f), flightPosition);
+			R = glm::rotate(glm::mat4(1.0f), charizards[i].getHeading(), glm::vec3(0.0f, 1.0f, 0.0f));
+			M = T * R * S;
 			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE, &M[0][0]);
-			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, (void *)0);
 			charizard->draw(pokemon2, false);
 		}
 
