@@ -18,9 +18,9 @@ vec3 skyColor = mix(horizonColor, zenithColor, smoothstep(0.0, 1.0, horizon));
 
 // Use the original panorama as a natural cloud layer, while retaining the
 // procedural gradient at the horizon so the field still blends cleanly.
-vec3 photoSky = texture(tex, vertex_tex).rgb;
-float photoWeight = smoothstep(0.06, 0.38, skyDirection.y);
-skyColor = mix(skyColor, photoSky, photoWeight * 0.82);
+vec3 photoSky = texture(tex, vec2(fract(vertex_tex.x), clamp(vertex_tex.y, 0.0, 1.0))).rgb;
+float photoWeight = smoothstep(0.0, 0.22, skyDirection.y);
+skyColor = mix(skyColor, photoSky, photoWeight * 0.96);
 
 color = vec4(skyColor, 1.0);
 }
