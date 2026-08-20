@@ -11,6 +11,7 @@ Modified by: <Zhisong Liang>
 #include <fstream>
 #include <limits>
 #include <sstream>
+#include <vector>
 #include "GLCompat.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -388,7 +389,7 @@ public:
 		// generate vertex buffer to hand off to OGL
 		glGenBuffers(1, &MeshPosID);
 		glBindBuffer(GL_ARRAY_BUFFER, MeshPosID);
-		vec3 vertices[MESHSIZE * MESHSIZE * 4];
+		std::vector<vec3> vertices(MESHSIZE * MESHSIZE * 4);
 		for (int x = 0; x < MESHSIZE; x++)
 			for (int z = 0; z < MESHSIZE; z++)
 			{
@@ -397,12 +398,12 @@ public:
 				vertices[x * 4 + z * MESHSIZE * 4 + 2] = vec3(1.0, 0.0, 1.0) + vec3(x, 0, z);
 				vertices[x * 4 + z * MESHSIZE * 4 + 3] = vec3(0.0, 0.0, 1.0) + vec3(x, 0, z);
 			}
-		glBufferData(GL_ARRAY_BUFFER, sizeof(vec3) * MESHSIZE * MESHSIZE * 4, vertices, GL_DYNAMIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(vec3) * MESHSIZE * MESHSIZE * 4, vertices.data(), GL_DYNAMIC_DRAW);
 		glEnableVertexAttribArray(0);
 		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void *)0);
 		// tex coords
 		float t = 1. / 100;
-		vec2 tex[MESHSIZE * MESHSIZE * 4];
+		std::vector<vec2> tex(MESHSIZE * MESHSIZE * 4);
 		for (int x = 0; x < MESHSIZE; x++)
 			for (int y = 0; y < MESHSIZE; y++)
 			{
@@ -414,14 +415,14 @@ public:
 		glGenBuffers(1, &MeshTexID);
 		// set the current state to focus on our vertex buffer
 		glBindBuffer(GL_ARRAY_BUFFER, MeshTexID);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(vec2) * MESHSIZE * MESHSIZE * 4, tex, GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(vec2) * MESHSIZE * MESHSIZE * 4, tex.data(), GL_STATIC_DRAW);
 		glEnableVertexAttribArray(1);
 		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, (void *)0);
 
 		glGenBuffers(1, &IndexBufferIDBox);
 		// set the current state to focus on our vertex buffer
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferIDBox);
-		GLushort elements[MESHSIZE * MESHSIZE * 6];
+		std::vector<GLushort> elements(MESHSIZE * MESHSIZE * 6);
 		int ind = 0;
 		for (int i = 0; i < MESHSIZE * MESHSIZE * 6; i += 6, ind += 4)
 		{
@@ -432,7 +433,7 @@ public:
 			elements[i + 4] = ind + 2;
 			elements[i + 5] = ind + 3;
 		}
-		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLushort) * MESHSIZE * MESHSIZE * 6, elements, GL_STATIC_DRAW);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLushort) * MESHSIZE * MESHSIZE * 6, elements.data(), GL_STATIC_DRAW);
 		glBindVertexArray(0);
 	}
 	/*Note that any gl calls must always happen after a GL state is initialized */
