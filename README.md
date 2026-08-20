@@ -111,6 +111,13 @@ The native build remains available for local development. The browser build
 uses the same models, textures, movement, and capture rules, but runs its main
 loop through the browser animation lifecycle.
 
+## Visual assets
+
+The original Charizard and Umbreon models remain in the project. The added
+low-poly wild companions come from Kenney's [Cube Pets](https://kenney.nl/assets/cube-pets)
+pack and are released under CC0; the source license is included in
+`resources/pokemon/companions/License.txt`.
+
 ## Controls
 
 - `W` / `S`: move forward and backward

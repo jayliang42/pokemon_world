@@ -60,19 +60,33 @@ void Shape::loadMesh(const string &meshName, const string *mtlpath, unsigned cha
 	}
 	// material:
 	for (int i = 0; i < objMaterials.size(); i++)
-		if (objMaterials[i].diffuse_texname.size() > 0)
+		if (objMaterials[i].diffuse_texname.size() > 0 && loadimage != NULL)
 		{
 			char filepath[1000];
 			int width, height, channels;
-			string filename = objMaterials[i].ambient_texname;
-			int subdir = filename.rfind("\\");
-			if (subdir > 0)
-				filename = filename.substr(subdir + 1);
-			string str = *mtlpath + filename;
+			string filename = objMaterials[i].diffuse_texname;
+			for (char &character : filename)
+			{
+				if (character == '\\')
+				{
+					character = '/';
+				}
+			}
+			string textureDirectory = mtlpath ? *mtlpath : string();
+			if (!textureDirectory.empty() && textureDirectory.back() != '/')
+			{
+				textureDirectory += '/';
+			}
+			string str = textureDirectory + filename;
 			strcpy(filepath, str.c_str());
 			// stbi_load(char const *filename, int *x, int *y, int *comp, int req_comp)
 
 			unsigned char *data = loadimage(filepath, &width, &height, &channels, 4);
+			if (!data)
+			{
+				cerr << "Unable to load texture: " << filepath << endl;
+				continue;
+			}
 			glGenTextures(1, &textureIDs[i]);
 			glActiveTexture(GL_TEXTURE0);
 			glBindTexture(GL_TEXTURE_2D, textureIDs[i]);
@@ -255,7 +269,7 @@ void Shape::draw(const shared_ptr<Program> prog, bool use_extern_texures) const
 		if (!use_extern_texures)
 		{
 			int textureindex = materialIDs[i];
-			if (textureindex >= 0)
+			if (textureindex >= 0 && textureIDs[textureindex] != 0)
 			{
 				glActiveTexture(GL_TEXTURE0);
 				glBindTexture(GL_TEXTURE_2D, textureIDs[textureindex]);

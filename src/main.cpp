@@ -33,6 +33,7 @@ using namespace glm;
 shared_ptr<Shape> shape;
 shared_ptr<Shape> umbreon;
 shared_ptr<Shape> charizard;
+std::vector<std::shared_ptr<Shape>> companionShapes;
 
 constexpr float SPEED = 4.0f;
 constexpr int NUM_POKEMON = 100;
@@ -561,6 +562,18 @@ public:
 		charizard->resize();
 		charizard->init();
 
+		const char *companionNames[] = {"animal-bunny", "animal-cat", "animal-chick", "animal-parrot"};
+		string companionDirectory = resourceDirectory + "/pokemon/companions/";
+		for (const char *companionName : companionNames)
+		{
+			shared_ptr<Shape> companion = make_shared<Shape>();
+			companion->loadMesh(companionDirectory + companionName + ".obj",
+			                    &companionDirectory, stbi_load);
+			companion->resize();
+			companion->init();
+			companionShapes.push_back(companion);
+		}
+
 		int width, height, channels;
 		char filepath[1000];
 
@@ -944,7 +957,7 @@ public:
 		mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.55f + y, -2.6f));
 
 		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, Texture5);
+		glBindTexture(GL_TEXTURE_2D, fireTex);
 		glUniformMatrix4fv(pokemon->getUniform("P"), 1, GL_FALSE, &P[0][0]);
 		glUniformMatrix4fv(pokemon->getUniform("V"), 1, GL_FALSE, &V[0][0]);
 		glUniform3fv(pokemon->getUniform("camoff"), 1, &offset[0]);
@@ -989,7 +1002,10 @@ public:
 			M = T * S;
 			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE, &M[0][0]);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, (void *)0);
-			umbreon->draw(pokemon2, false);
+			shared_ptr<Shape> wildShape = companionShapes.empty()
+				? umbreon
+				: companionShapes[static_cast<size_t>(i) % companionShapes.size()];
+			wildShape->draw(pokemon2, false);
 		}
 
 		S = glm::scale(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f));
