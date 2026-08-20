@@ -22,8 +22,8 @@ color.rgb *= diffuse*0.7;
 vec3 cd = normalize(vertex_pos - campos);
 vec3 h = normalize(cd+ld);
 float spec = dot(n,h);
-spec = clamp(spec,0,1);
-spec = pow(spec,20);
-color.rgb += vec3(1,1,1)*spec*3;
+spec = clamp(spec, 0.0, 1.0);
+spec = pow(spec, 20.0);
+color.rgb += vec3(1.0, 1.0, 1.0) * spec * 3.0;
 color.a=1;
 }

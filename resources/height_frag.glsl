@@ -23,7 +23,7 @@ color.a=1;
 float len = length(vertex_pos.xz+campos.xz);
 len-=41;
 len/=8.;
-len=clamp(len,0,1);
+len=clamp(len, 0.0, 1.0);
 color.a=1-len;
 
 
