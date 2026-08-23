@@ -58,3 +58,35 @@ PokemonAnimationPose samplePokemonAnimation(const PokemonAnimationInput &input)
 	}
 	return pose;
 }
+
+PokemonPartAnimation samplePokemonPartAnimation(const std::string &partName,
+	                                            const PokemonAnimationPose &pose)
+{
+	PokemonPartAnimation part;
+	if (partName.find("leg-") != std::string::npos)
+	{
+		const bool forwardPair =
+			partName.find("front-left") != std::string::npos ||
+			partName.find("back-right") != std::string::npos;
+		part.pitch = pose.strideAngle * (forwardPair ? 1.0f : -1.0f);
+	}
+	else if (partName.find("wing-left") != std::string::npos)
+	{
+		const float flap = std::fabs(pose.wingAngle) > 0.0001f
+		                       ? pose.wingAngle
+		                       : pose.strideAngle * 0.24f;
+		part.roll = flap;
+	}
+	else if (partName.find("wing-right") != std::string::npos)
+	{
+		const float flap = std::fabs(pose.wingAngle) > 0.0001f
+		                       ? pose.wingAngle
+		                       : pose.strideAngle * 0.24f;
+		part.roll = -flap;
+	}
+	else if (partName.find("tail") != std::string::npos)
+	{
+		part.yaw = pose.tailAngle;
+	}
+	return part;
+}

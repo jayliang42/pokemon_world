@@ -168,6 +168,35 @@ void testAnimationPoseReflectsMovementState()
 	expectTrue(flying.bodyPitch > 0.0f, "climbing pitches a flying Pokemon upward");
 	expectTrue(flying.bodyRoll < 0.0f, "turning banks a flying Pokemon into the turn");
 }
+
+void testNamedPartsReceiveArticulatedMotion()
+{
+	PokemonAnimationPose pose;
+	pose.strideAngle = 0.5f;
+	pose.wingAngle = 0.4f;
+	pose.tailAngle = 0.2f;
+
+	const PokemonPartAnimation frontLeft =
+		samplePokemonPartAnimation("leg-front-left", pose);
+	const PokemonPartAnimation frontRight =
+		samplePokemonPartAnimation("leg-front-right", pose);
+	expectNear(frontLeft.pitch, -frontRight.pitch, 0.0001f,
+	           "left and right legs move in opposite stride directions");
+
+	const PokemonPartAnimation leftWing =
+		samplePokemonPartAnimation("wing-left", pose);
+	const PokemonPartAnimation rightWing =
+		samplePokemonPartAnimation("wing-right", pose);
+	expectNear(leftWing.roll, -rightWing.roll, 0.0001f,
+	           "left and right wings flap around mirrored joints");
+
+	const PokemonPartAnimation tail = samplePokemonPartAnimation("tail", pose);
+	expectNear(tail.yaw, pose.tailAngle, 0.0001f,
+	           "tail groups receive lateral sway");
+	const PokemonPartAnimation body = samplePokemonPartAnimation("body", pose);
+	expectNear(body.pitch + body.yaw + body.roll, 0.0f, 0.0001f,
+	           "body groups remain attached to the root transform");
+}
 }
 
 int main()
@@ -179,6 +208,7 @@ int main()
 	testFlyingPokemonStaysWithinFlightBand();
 	testAnimationPhaseFollowsLocomotion();
 	testAnimationPoseReflectsMovementState();
+	testNamedPartsReceiveArticulatedMotion();
 
 	if (failures != 0)
 	{

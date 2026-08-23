@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 struct PokemonAnimationInput
 {
 	bool flying = false;
@@ -21,6 +23,15 @@ struct PokemonAnimationPose
 	float tailAngle = 0.0f;
 };
 
+struct PokemonPartAnimation
+{
+	float pitch = 0.0f;
+	float yaw = 0.0f;
+	float roll = 0.0f;
+};
+
 float advancePokemonAnimationPhase(float phase, float deltaSeconds,
 	                               bool flying, bool fleeing, float speedRatio);
 PokemonAnimationPose samplePokemonAnimation(const PokemonAnimationInput &input);
+PokemonPartAnimation samplePokemonPartAnimation(const std::string &partName,
+	                                            const PokemonAnimationPose &pose);

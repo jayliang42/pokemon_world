@@ -21,6 +21,7 @@ Modified by: <Zhisong Liang>
 #include "Program.h"
 #include "MatrixStack.h"
 #include "Pokemon.h"
+#include "PokemonAnimation.h"
 #include "PokemonTargeting.h"
 #include "PlayerController.h"
 #include "TerrainHeightMap.h"
@@ -432,6 +433,54 @@ public:
 			setStatus(message.str());
 		}
 		refreshTarget();
+	}
+
+	glm::vec3 articulatedPartPivot(const Shape::PartInfo &part) const
+	{
+		glm::vec3 pivot = (part.minimum + part.maximum) * 0.5f;
+		if (part.name.find("leg-") != std::string::npos)
+		{
+			pivot.y = part.maximum.y;
+		}
+		else if (part.name.find("wing") != std::string::npos)
+		{
+			pivot.x = std::fabs(part.minimum.x) < std::fabs(part.maximum.x)
+			              ? part.minimum.x
+			              : part.maximum.x;
+		}
+		else if (part.name.find("tail") != std::string::npos)
+		{
+			pivot.z = std::fabs(part.minimum.z) < std::fabs(part.maximum.z)
+			              ? part.minimum.z
+			              : part.maximum.z;
+		}
+		return pivot;
+	}
+
+	void drawArticulatedShape(const std::shared_ptr<Shape> &creature,
+	                         const glm::mat4 &rootTransform,
+	                         const PokemonAnimationPose &pose,
+	                         bool useExternalTextures)
+	{
+		for (int partIndex = 0; partIndex < creature->partCount(); ++partIndex)
+		{
+			const Shape::PartInfo &part = creature->partInfo(partIndex);
+			const PokemonPartAnimation animation =
+				samplePokemonPartAnimation(part.name, pose);
+			const glm::vec3 pivot = articulatedPartPivot(part);
+			glm::mat4 local = glm::translate(glm::mat4(1.0f), pivot);
+			local = local * glm::rotate(glm::mat4(1.0f), animation.pitch,
+			                           glm::vec3(1.0f, 0.0f, 0.0f));
+			local = local * glm::rotate(glm::mat4(1.0f), animation.yaw,
+			                           glm::vec3(0.0f, 1.0f, 0.0f));
+			local = local * glm::rotate(glm::mat4(1.0f), animation.roll,
+			                           glm::vec3(0.0f, 0.0f, 1.0f));
+			local = local * glm::translate(glm::mat4(1.0f), -pivot);
+			const glm::mat4 modelMatrix = rootTransform * local;
+			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE,
+			                   &modelMatrix[0][0]);
+			creature->drawPart(pokemon2, partIndex, useExternalTextures);
+		}
 	}
 
 	void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
@@ -1281,22 +1330,25 @@ public:
 			}
 			const float speedRatio = umbreons[i].getSpeedRatio();
 			const bool fleeing = umbreons[i].getBehaviorState() == PokemonBehaviorState::Flee;
-			const float stepFrequency = 1.8f + speedRatio * (fleeing ? 6.0f : 4.0f);
-			const float stepHeight = 0.008f + speedRatio * (fleeing ? 0.065f : 0.035f);
+			PokemonAnimationInput animationInput;
+			animationInput.fleeing = fleeing;
+			animationInput.speedRatio = speedRatio;
+			animationInput.phase = umbreons[i].getMotionPhase();
+			const PokemonAnimationPose pose = samplePokemonAnimation(animationInput);
 			vec3 wildPosition = umbreons[i].getPos();
 			wildPosition.y = terrainHeightMap.heightAt(wildPosition.x, wildPosition.z) +
-			                 0.2f + stepHeight * std::sin(motionTime * stepFrequency +
-			                                             umbreons[i].getMotionPhase());
+			                 0.2f + pose.bodyBob;
 			T = glm::translate(glm::mat4(1.0f), wildPosition);
 			R = glm::rotate(glm::mat4(1.0f), umbreons[i].getHeading(), glm::vec3(0.0f, 1.0f, 0.0f));
-			mat4 Lean = glm::rotate(glm::mat4(1.0f), -speedRatio * (fleeing ? 0.13f : 0.07f),
+			mat4 Lean = glm::rotate(glm::mat4(1.0f), pose.bodyPitch,
 			                        glm::vec3(1.0f, 0.0f, 0.0f));
-			M = T * R * Lean * S;
-			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE, &M[0][0]);
+			mat4 Breathing = glm::scale(glm::mat4(1.0f),
+			                            glm::vec3(1.0f, pose.breathingScale, 1.0f));
+			const mat4 creatureRoot = T * R * Lean * S * Breathing;
 			shared_ptr<Shape> wildShape = companionShapes.empty()
 				? umbreon
 				: companionShapes[static_cast<size_t>(i) % companionShapes.size()];
-			wildShape->draw(pokemon2, false);
+			drawArticulatedShape(wildShape, creatureRoot, pose, false);
 		}
 
 		S = glm::scale(glm::mat4(1.0f), glm::vec3(1.6f, 1.6f, 1.6f));
