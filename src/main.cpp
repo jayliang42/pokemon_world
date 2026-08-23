@@ -55,6 +55,7 @@ constexpr int NUM_POKEMON = 48;
 constexpr int FLYING_POKEMON = 8;
 constexpr int STARTING_POKEBALLS = 10;
 constexpr int CAPTURE_GOAL = 5;
+constexpr float BATTLE_DODGE_CLEARANCE = 1.35f;
 
 struct RockPlacement
 {
@@ -289,6 +290,31 @@ public:
 		return controller_.grounded();
 	}
 
+	bool requestDodge()
+	{
+		return controller_.requestDodge();
+	}
+
+	bool isDodging() const
+	{
+		return controller_.isDodging();
+	}
+
+	bool isInvulnerable() const
+	{
+		return controller_.isInvulnerable();
+	}
+
+	float dodgeCooldownRemaining() const
+	{
+		return controller_.dodgeCooldownRemaining();
+	}
+
+	float dodgeCooldownFraction() const
+	{
+		return controller_.dodgeCooldownFraction();
+	}
+
 	void setGroundHeightProvider(PlayerController::GroundHeightProvider provider)
 	{
 		controller_.setGroundHeightProvider(provider);
@@ -418,7 +444,7 @@ GLuint rockTex, umbreonTex;
 		}
 
 		std::ostringstream title;
-		title << "Pokemon World | W/S move  A/D turn  Q/E/Space fly  Z gravity  1/2/3 moves  X attack  C catch  R reset"
+		title << "Pokemon World | W/S move  A/D turn  Q/E/Space fly  Shift dodge  Z gravity  1/2/3 moves  X attack  C catch  R reset"
 		      << " | Caught " << caughtCount << "/" << CAPTURE_GOAL
 		      << " | Defeated " << defeatedCount
 		      << " | Poke Balls " << pokeballs
@@ -994,6 +1020,12 @@ GLuint rockTex, umbreonTex;
 			return;
 		}
 		const BattleSequenceSample sample = currentBattleSample(now);
+		if (pendingBattlePlan.counterEnabled &&
+		    !battlePhaseAtLeast(lastBattlePhase, BattlePhase::WildProjectile) &&
+		    battlePhaseAtLeast(sample.phase, BattlePhase::WildProjectile))
+		{
+			battlePlayerHitPosition = mypos + glm::vec3(0.0f, 0.82f, 0.0f);
+		}
 		if (!targetDamageApplied &&
 		    battlePhaseAtLeast(sample.phase, BattlePhase::TargetImpact))
 		{
@@ -1029,17 +1061,33 @@ GLuint rockTex, umbreonTex;
 		    battlePhaseAtLeast(sample.phase, BattlePhase::PlayerImpact))
 		{
 			playerDamageApplied = true;
-			const int appliedDamage = std::min(playerHealth, pendingWildDamage.amount);
-			playerHealth = std::max(0, playerHealth - appliedDamage);
-			emitGameCue("player-impact", pendingWildMove.type);
-			std::ostringstream message;
-			message << pendingBattleSpecies << " dealt " << appliedDamage
-			        << " damage with " << pendingWildMove.name << " (Charizard "
-			        << playerHealth << "/"
-			        << battleStatsFor(PokemonSpecies::Charizard).maximumHealth
-			        << " HP)." << effectivenessMessage(pendingWildDamage);
-			setStatus(message.str());
-			saveGameProgress();
+			const glm::vec2 impactOffset(
+				mypos.x - battlePlayerHitPosition.x,
+				mypos.z - battlePlayerHitPosition.z);
+			const bool clearedImpactZone =
+				glm::length(impactOffset) >= BATTLE_DODGE_CLEARANCE;
+			const PlayerHitResult hit = resolvePlayerHit(
+				playerHealth, pendingWildDamage.amount,
+				mycam.isInvulnerable() || clearedImpactZone);
+			playerHealth = hit.remainingHealth;
+			if (hit.evaded)
+			{
+				emitGameCue("dodge-success", pendingWildMove.type);
+				setStatus("Charizard evaded " + pendingBattleSpecies + "'s " +
+				          pendingWildMove.name + "!");
+			}
+			else
+			{
+				emitGameCue("player-impact", pendingWildMove.type);
+				std::ostringstream message;
+				message << pendingBattleSpecies << " dealt " << hit.appliedDamage
+				        << " damage with " << pendingWildMove.name << " (Charizard "
+				        << playerHealth << "/"
+				        << battleStatsFor(PokemonSpecies::Charizard).maximumHealth
+				        << " HP)." << effectivenessMessage(pendingWildDamage);
+				setStatus(message.str());
+				saveGameProgress();
+			}
 		}
 
 		if (sample.phase != lastBattlePhase)
@@ -1649,6 +1697,22 @@ GLuint rockTex, umbreonTex;
 		if (key == GLFW_KEY_SPACE && action == GLFW_RELEASE)
 		{
 			mycam.space = 0;
+		}
+		if ((key == GLFW_KEY_LEFT_SHIFT || key == GLFW_KEY_RIGHT_SHIFT) &&
+		    action == GLFW_PRESS)
+		{
+			if (captureSequenceActive)
+			{
+				setStatus("Finish the capture sequence before dodging.");
+			}
+			else if (!gameFinished && !mycam.requestDodge())
+			{
+				std::ostringstream message;
+				message << "Dodge recharging for " << std::fixed
+				        << std::setprecision(1) << mycam.dodgeCooldownRemaining()
+				        << "s.";
+				setStatus(message.str());
+			}
 		}
 		if (key == GLFW_KEY_C && action == GLFW_PRESS)
 		{
@@ -2317,6 +2381,11 @@ GLuint rockTex, umbreonTex;
 		PokemonAnimationPose playerPose =
 			samplePokemonAnimation(playerAnimationInput);
 		const PlayerMotionEvents &motionEvents = mycam.motionEvents();
+		if (motionEvents.dodgeStarted)
+		{
+			emitGameCue("dodge");
+			setStatus("Charizard dashed forward.");
+		}
 		if (motionEvents.hitCeiling)
 		{
 			setStatus("Maximum flight altitude reached.");
