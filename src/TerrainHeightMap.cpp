@@ -88,6 +88,28 @@ float TerrainHeightMap::heightAt(float worldX, float worldZ) const
 		return 0.0f;
 	}
 
+	const float gridX = std::floor(worldX);
+	const float gridZ = std::floor(worldZ);
+	const float blendX = worldX - gridX;
+	const float blendZ = worldZ - gridZ;
+	const float height00 = textureHeightAt(gridX, gridZ);
+	const float height10 = textureHeightAt(gridX + 1.0f, gridZ);
+	const float height01 = textureHeightAt(gridX, gridZ + 1.0f);
+	const float height11 = textureHeightAt(gridX + 1.0f, gridZ + 1.0f);
+
+	if (blendZ <= blendX)
+	{
+		return height00 * (1.0f - blendX) +
+		       height10 * (blendX - blendZ) +
+		       height11 * blendZ;
+	}
+	return height00 * (1.0f - blendZ) +
+	       height11 * blendX +
+	       height01 * (blendZ - blendX);
+}
+
+float TerrainHeightMap::textureHeightAt(float worldX, float worldZ) const
+{
 	const float u = (worldX + TERRAIN_HALF_SIZE) / TERRAIN_SIZE;
 	const float v = (worldZ + TERRAIN_HALF_SIZE) / TERRAIN_SIZE;
 	return sampleNormalized(u, v) * TERRAIN_HEIGHT_RANGE + TERRAIN_MIN_HEIGHT;

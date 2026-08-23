@@ -3,6 +3,7 @@
 #include <cmath>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -80,6 +81,21 @@ void testMapsWorldCoordinatesToTerrainHeight()
 	expectNear(map.heightAt(75.0f, -25.0f), -5.0f, 0.00001f,
 	           "terrain height repeats every 100 world units");
 }
+
+void testWorldHeightMatchesRenderedTriangleSurface()
+{
+	std::vector<unsigned char> pixels(200, 0);
+	pixels[101] = 255;
+	TerrainHeightMap map;
+	expectTrue(map.setPixels(200, 1, pixels.data(), 1), "single-channel height pixels are accepted");
+
+	expectNear(map.heightAt(0.0f, 0.0f), -5.0f, 0.00001f,
+	           "rendered grid height starts at the first terrain vertex");
+	expectNear(map.heightAt(1.0f, 0.0f), 0.0f, 0.00001f,
+	           "rendered grid height reaches the next terrain vertex");
+	expectNear(map.heightAt(0.5f, 0.0f), -2.5f, 0.00001f,
+	           "collision height follows the rendered triangle between grid vertices");
+}
 }
 
 int main()
@@ -87,6 +103,7 @@ int main()
 	testRejectsInvalidPixelData();
 	testMatchesOpenGLLinearRepeatSampling();
 	testMapsWorldCoordinatesToTerrainHeight();
+	testWorldHeightMatchesRenderedTriangleSurface();
 
 	if (failures != 0)
 	{

@@ -13,6 +13,7 @@ public:
 
 private:
 	float sampleWrappedTexel(int x, int y) const;
+	float textureHeightAt(float worldX, float worldZ) const;
 
 	int width_ = 0;
 	int height_ = 0;
