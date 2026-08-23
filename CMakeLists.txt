@@ -4,6 +4,8 @@ include("${CMAKE_SOURCE_DIR}/FindGfxLibs.cmake")
 # Name of the project
 project(final)
 
+include(CTest)
+
 # Enforce use of C++14
 set(CMAKE_CXX_STANDARD_REQUIRED 14)
 set(CMAKE_CXX_STANDARD 14)
@@ -15,6 +17,16 @@ if(EMSCRIPTEN)
   # GLAD loads desktop OpenGL symbols through dlopen/dlsym, which is not part
   # of the browser build. WebGL exposes GLES3 directly instead.
   list(FILTER SOURCES EXCLUDE REGEX ".*/ext/glad/src/glad\\.c$")
+endif()
+
+if(BUILD_TESTING AND NOT EMSCRIPTEN)
+  add_executable(player_controller_tests
+      tests/player_controller_test.cpp
+      src/PlayerController.cpp)
+  target_include_directories(player_controller_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME player_controller_physics COMMAND player_controller_tests)
 endif()
 
 # We don't really need to include header and resource files to build, but it's
