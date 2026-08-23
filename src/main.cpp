@@ -724,7 +724,6 @@ public:
 		prog->addUniform("P");
 		prog->addUniform("V");
 		prog->addUniform("M");
-		prog->addUniform("campos");
 		prog->addAttribute("vertPos");
 		prog->addAttribute("vertNor");
 		prog->addAttribute("vertTex");
@@ -740,7 +739,6 @@ public:
 		prog2->addUniform("P");
 		prog2->addUniform("V");
 		prog2->addUniform("M");
-		prog2->addUniform("campos");
 		prog2->addAttribute("vertPos");
 		prog2->addAttribute("vertNor");
 		prog2->addAttribute("vertTex");
@@ -773,8 +771,6 @@ public:
 		pokemon->addUniform("P");
 		pokemon->addUniform("V");
 		pokemon->addUniform("M");
-		pokemon->addUniform("camoff");
-		pokemon->addUniform("campos");
 		pokemon->addAttribute("vertPos");
 		pokemon->addAttribute("vertTex");
 		pokemon->addAttribute("vertNor");
@@ -790,8 +786,6 @@ public:
 		pokemon2->addUniform("P");
 		pokemon2->addUniform("V");
 		pokemon2->addUniform("M");
-		pokemon2->addUniform("camoff");
-		pokemon2->addUniform("campos");
 		pokemon2->addAttribute("vertPos");
 		pokemon2->addAttribute("vertTex");
 		pokemon2->addAttribute("vertNor");
@@ -878,7 +872,6 @@ public:
 		glUniformMatrix4fv(prog->getUniform("P"), 1, GL_FALSE, &P[0][0]);
 		glUniformMatrix4fv(prog->getUniform("V"), 1, GL_FALSE, &V[0][0]);
 		glUniformMatrix4fv(prog->getUniform("M"), 1, GL_FALSE, &M[0][0]);
-		glUniform3fv(prog->getUniform("campos"), 1, &mycam.pos[0]);
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, Texture);
 
@@ -917,7 +910,6 @@ public:
 		V = mat4(1);
 		glUniformMatrix4fv(prog2->getUniform("P"), 1, GL_FALSE, &P[0][0]);
 		glUniformMatrix4fv(prog2->getUniform("V"), 1, GL_FALSE, &V[0][0]);
-		glUniform3fv(prog2->getUniform("campos"), 1, &mycam.pos[0]);
 		glBindVertexArray(VertexArrayID2);
 		// actually draw from vertex 0, 3 vertices
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferIDBox2);
@@ -970,8 +962,6 @@ public:
 		glBindTexture(GL_TEXTURE_2D, fireTex);
 		glUniformMatrix4fv(pokemon->getUniform("P"), 1, GL_FALSE, &P[0][0]);
 		glUniformMatrix4fv(pokemon->getUniform("V"), 1, GL_FALSE, &V[0][0]);
-		glUniform3fv(pokemon->getUniform("camoff"), 1, &offset[0]);
-		glUniform3fv(pokemon->getUniform("campos"), 1, &mycam.pos[0]);
 		// rotate x 180 degree
 		mat4 R = glm::rotate(glm::mat4(1.0f), 3.14f, glm::vec3(0.0f, 1.0f, 0.0f));
 		M = T * R * S;
