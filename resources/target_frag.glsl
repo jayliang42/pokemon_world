@@ -6,6 +6,7 @@ in vec2 vertex_tex;
 uniform float time;
 uniform vec3 ringColor;
 uniform float opacity;
+uniform float fillAmount;
 
 void main()
 {
@@ -18,10 +19,14 @@ void main()
 	float ticks = smoothstep(0.72, 0.92, radius) *
 	              smoothstep(0.90, 0.98, abs(cos(angle * 4.0)));
 	float pulse = 0.78 + 0.22 * sin(time * 4.5);
-	float alpha = max(ring * pulse, ticks) * opacity;
+	float ringAlpha = max(ring * pulse, ticks) * opacity;
+	float softDisc = 1.0 - smoothstep(0.12, 1.0, radius);
+	float alpha = mix(ringAlpha, softDisc * opacity, fillAmount);
 	if (alpha < 0.01)
 	{
 		discard;
 	}
-	color = vec4(ringColor * (0.78 + pulse * 0.35), alpha);
+	vec3 finalColor = mix(ringColor * (0.78 + pulse * 0.35),
+	                      ringColor, fillAmount);
+	color = vec4(finalColor, alpha);
 }

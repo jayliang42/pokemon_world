@@ -1462,6 +1462,7 @@ GLuint rockTex, umbreonTex;
 		targetshader->addUniform("time");
 		targetshader->addUniform("ringColor");
 		targetshader->addUniform("opacity");
+		targetshader->addUniform("fillAmount");
 		targetshader->addAttribute("vertPos");
 		targetshader->addAttribute("vertTex");
 
@@ -1633,18 +1634,97 @@ GLuint rockTex, umbreonTex;
 		glBindVertexArray(VertexArrayID2);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferIDBox2);
 		glDepthMask(GL_FALSE);
-		auto drawTargetRing = [&](const glm::vec3 &position, float diameter,
-		                          const glm::vec3 &ringColor, float opacity) {
-			glm::mat4 ringTranslation = glm::translate(glm::mat4(1.0f), position);
-			glm::mat4 ringRotation = glm::rotate(glm::mat4(1.0f), -1.5707963f,
-			                                         glm::vec3(1.0f, 0.0f, 0.0f));
-			glm::mat4 ringScale = glm::scale(glm::mat4(1.0f), glm::vec3(diameter));
-			glm::mat4 ringModel = ringTranslation * ringRotation * ringScale;
-			glUniformMatrix4fv(targetshader->getUniform("M"), 1, GL_FALSE, &ringModel[0][0]);
-			glUniform3fv(targetshader->getUniform("ringColor"), 1, &ringColor[0]);
+		auto drawPlanarEffect = [&](const glm::vec3 &position,
+		                            const glm::vec2 &dimensions,
+		                            const glm::vec3 &effectColor, float opacity,
+		                            float fillAmount) {
+			const glm::mat4 translation =
+				glm::translate(glm::mat4(1.0f), position);
+			const glm::mat4 rotation = glm::rotate(
+				glm::mat4(1.0f), -1.5707963f, glm::vec3(1.0f, 0.0f, 0.0f));
+			const glm::mat4 scale = glm::scale(
+				glm::mat4(1.0f), glm::vec3(dimensions.x, dimensions.y, 1.0f));
+			const glm::mat4 centerQuad = glm::translate(
+				glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -0.5f));
+			const glm::mat4 model = translation * rotation * scale * centerQuad;
+			glUniformMatrix4fv(targetshader->getUniform("M"), 1, GL_FALSE,
+			                   &model[0][0]);
+			glUniform3fv(targetshader->getUniform("ringColor"), 1,
+			             &effectColor[0]);
 			glUniform1f(targetshader->getUniform("opacity"), opacity);
+			glUniform1f(targetshader->getUniform("fillAmount"), fillAmount);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, (void *)0);
 		};
+		auto drawTargetRing = [&](const glm::vec3 &position, float diameter,
+		                          const glm::vec3 &ringColor, float opacity) {
+			drawPlanarEffect(position, glm::vec2(diameter), ringColor, opacity, 0.0f);
+		};
+		auto drawGroundShadow = [&](const glm::vec3 &position,
+		                           const glm::vec2 &dimensions, float opacity) {
+			drawPlanarEffect(position, dimensions,
+			                 glm::vec3(0.025f, 0.065f, 0.095f), opacity, 1.0f);
+		};
+
+		const float playerGroundHeight =
+			terrainHeightMap.heightAt(mypos.x, mypos.z);
+		const float playerAltitude = std::max(0.0f, mypos.y - playerGroundHeight);
+		const float playerShadowGrowth =
+			glm::clamp(1.0f + playerAltitude * 0.07f, 1.0f, 2.8f);
+		const float playerShadowOpacity =
+			glm::clamp(0.34f - playerAltitude * 0.012f, 0.07f, 0.34f);
+		drawGroundShadow(
+			glm::vec3(mypos.x, playerGroundHeight + 0.035f, mypos.z),
+			glm::vec2(1.75f, 1.28f) * playerShadowGrowth, playerShadowOpacity);
+
+		for (int i = 0; i < NUM_POKEMON; ++i)
+		{
+			if (umbreons[i].getCaught() == 1 ||
+			    (isPendingCaptureTarget(umbreons[i]) &&
+			     !captureVisualSample.pokemonVisible))
+			{
+				continue;
+			}
+			const glm::vec3 position = umbreons[i].getPos();
+			if (glm::length(glm::vec2(mypos.x - position.x,
+			                          mypos.z - position.z)) > 50.0f)
+			{
+				continue;
+			}
+			const bool isUmbreon =
+				umbreons[i].getSpecies() == PokemonSpecies::Umbreon;
+			drawGroundShadow(
+				glm::vec3(position.x,
+				          terrainHeightMap.heightAt(position.x, position.z) + 0.032f,
+				          position.z),
+				isUmbreon ? glm::vec2(1.32f, 0.88f)
+				           : glm::vec2(1.45f, 1.05f),
+				0.25f);
+		}
+
+		for (int i = 0; i < FLYING_POKEMON; ++i)
+		{
+			if (charizards[i].getCaught() == 1 ||
+			    (isPendingCaptureTarget(charizards[i]) &&
+			     !captureVisualSample.pokemonVisible))
+			{
+				continue;
+			}
+			const glm::vec3 position = charizards[i].getPos();
+			if (glm::length(glm::vec2(mypos.x - position.x,
+			                          mypos.z - position.z)) > 100.0f)
+			{
+				continue;
+			}
+			const float groundHeight =
+				terrainHeightMap.heightAt(position.x, position.z);
+			const float altitude = std::max(0.0f, position.y - groundHeight);
+			const float growth = glm::clamp(1.0f + altitude * 0.045f, 1.0f, 2.5f);
+			const float opacity =
+				glm::clamp(0.24f - altitude * 0.006f, 0.055f, 0.20f);
+			drawGroundShadow(glm::vec3(position.x, groundHeight + 0.038f, position.z),
+			                 glm::vec2(2.45f, 1.42f) * growth, opacity);
+		}
+
 		Pokemon *lockedPokemon = targetedPokemon();
 		if (lockedPokemon && lockedPokemon->getCaught() == 0)
 		{
