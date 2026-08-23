@@ -18,6 +18,7 @@ struct PlayerMotionEvents
 	bool hitBoundary = false;
 	bool hitObstacle = false;
 	bool hitCeiling = false;
+	bool dodgeStarted = false;
 };
 
 struct StaticCollisionCylinder
@@ -45,6 +46,10 @@ struct PlayerPhysicsConfig
 	float verticalDrag = 20.0f;
 	float gravityAcceleration = 18.0f;
 	float terminalFallSpeed = 20.0f;
+	float dodgeSpeed = 13.0f;
+	float dodgeDuration = 0.22f;
+	float dodgeCooldown = 2.4f;
+	float dodgeInvulnerability = 0.45f;
 	float maxDeltaSeconds = 0.05f;
 };
 
@@ -62,6 +67,7 @@ public:
 	void setStaticObstacles(std::vector<StaticCollisionCylinder> obstacles);
 	void setGravityEnabled(bool enabled);
 	void toggleGravity();
+	bool requestDodge();
 
 	const glm::vec3 &position() const;
 	glm::vec3 velocity() const;
@@ -69,6 +75,10 @@ public:
 	float verticalVelocity() const;
 	bool gravityEnabled() const;
 	bool grounded() const;
+	bool isDodging() const;
+	bool isInvulnerable() const;
+	float dodgeCooldownRemaining() const;
+	float dodgeCooldownFraction() const;
 
 private:
 	float groundHeightAt(float worldX, float worldZ) const;
@@ -81,6 +91,10 @@ private:
 	glm::vec3 horizontalVelocity_ = glm::vec3(0.0f);
 	float verticalVelocity_ = 0.0f;
 	float yaw_ = 0.0f;
+	float dodgeTimeRemaining_ = 0.0f;
+	float dodgeCooldownRemaining_ = 0.0f;
+	float dodgeInvulnerabilityRemaining_ = 0.0f;
+	bool dodgeRequested_ = false;
 	bool gravityEnabled_ = false;
 	bool grounded_ = true;
 };

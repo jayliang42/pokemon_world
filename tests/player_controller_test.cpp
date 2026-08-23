@@ -270,6 +270,114 @@ void testLargeFrameIsClamped()
 	expectNear(stalled.position().z, regular.position().z, 0.0001f,
 	           "stalled frame cannot teleport the player");
 }
+
+void testDodgeStartsWithBurstAndInvulnerability()
+{
+	PlayerPhysicsConfig config;
+	config.dodgeSpeed = 12.0f;
+	config.dodgeDuration = 0.2f;
+	config.dodgeCooldown = 1.0f;
+	config.dodgeInvulnerability = 0.35f;
+	PlayerController player(config);
+	PlayerInput input;
+
+	expectTrue(player.requestDodge(), "a ready player can request a dodge");
+	PlayerMotionEvents events = player.update(input, 0.05f);
+	expectTrue(events.dodgeStarted, "accepted dodge reports a start event");
+	expectNear(player.position().z, -0.6f, 0.0001f,
+	           "dodge immediately moves at the configured burst speed");
+	expectNear(glm::length(glm::vec2(player.velocity().x, player.velocity().z)),
+	           12.0f, 0.0001f, "dodge velocity uses its independent speed");
+	expectTrue(player.isDodging(), "dodge remains active for its configured duration");
+	expectTrue(player.isInvulnerable(), "dodge starts an invulnerability window");
+	expectNear(player.dodgeCooldownRemaining(), 1.0f, 0.0001f,
+	           "dodge starts its independent cooldown");
+	expectNear(player.dodgeCooldownFraction(), 1.0f, 0.0001f,
+	           "fresh dodge reports a full cooldown fraction");
+	expectTrue(!player.requestDodge(), "an active dodge cannot be queued again");
+}
+
+void testDodgeCooldownExpiresAndResetClearsTransientState()
+{
+	PlayerPhysicsConfig config;
+	config.dodgeDuration = 0.1f;
+	config.dodgeCooldown = 0.3f;
+	config.dodgeInvulnerability = 0.15f;
+	PlayerController player(config);
+	PlayerInput input;
+
+	player.requestDodge();
+	player.update(input, 0.05f);
+	for (int frame = 0; frame < 7; ++frame)
+	{
+		player.update(input, 0.05f);
+	}
+	expectTrue(!player.isDodging(), "dodge duration expires independently");
+	expectTrue(!player.isInvulnerable(), "dodge invulnerability expires independently");
+	expectNear(player.dodgeCooldownRemaining(), 0.0f, 0.0001f,
+	           "dodge cooldown counts down to ready");
+	expectTrue(player.requestDodge(), "dodge can be requested again after cooldown");
+	player.update(input, 0.05f);
+
+	player.reset(glm::vec3(2.0f, 0.0f, 1.0f));
+	expectTrue(!player.isDodging(), "reset stops an active dodge");
+	expectTrue(!player.isInvulnerable(), "reset clears dodge invulnerability");
+	expectNear(player.dodgeCooldownRemaining(), 0.0f, 0.0001f,
+	           "reset clears dodge cooldown");
+	expectTrue(player.requestDodge(), "reset returns dodge to a ready state");
+}
+
+void testDodgeCannotPenetrateStaticObstacleOrReapplyInwardSpeed()
+{
+	PlayerPhysicsConfig config;
+	config.dodgeSpeed = 13.0f;
+	config.dodgeDuration = 0.3f;
+	PlayerController player(config);
+	StaticCollisionCylinder obstacle;
+	obstacle.center = glm::vec2(0.0f, -3.0f);
+	obstacle.radius = 1.0f;
+	obstacle.baseY = 0.0f;
+	obstacle.height = 2.0f;
+	player.setStaticObstacles({obstacle});
+	PlayerInput input;
+
+	player.requestDodge();
+	int obstacleEvents = 0;
+	for (int frame = 0; frame < 8; ++frame)
+	{
+		if (player.update(input, 0.05f).hitObstacle)
+		{
+			++obstacleEvents;
+		}
+		const float distance = glm::length(glm::vec2(
+			player.position().x, player.position().z + 3.0f));
+		expectTrue(distance >= 1.7999f,
+		           "dodge remains outside the obstacle on every frame");
+	}
+	expectNear(player.position().z, -1.2f, 0.0002f,
+	           "head-on dodge stops at the obstacle surface");
+	expectNear(player.velocity().z, 0.0f, 0.0001f,
+	           "collision removes dodge speed directed into the obstacle");
+	expectTrue(obstacleEvents == 1,
+	           "dodge obstacle contact is debounced while touching");
+}
+
+void testDodgeRespectsPlayerRadiusAtFieldBoundary()
+{
+	PlayerPhysicsConfig config;
+	config.dodgeSpeed = 13.0f;
+	PlayerController player(config);
+	player.reset(glm::vec3(0.0f, 0.0f, -47.0f));
+	PlayerInput input;
+
+	player.requestDodge();
+	PlayerMotionEvents events = player.update(input, 0.05f);
+	expectTrue(events.hitBoundary, "dodge reports its first boundary collision");
+	expectNear(player.position().z, -47.2f, 0.0001f,
+	           "dodge preserves the player collision radius at the field edge");
+	expectNear(player.velocity().z, 0.0f, 0.0001f,
+	           "field boundary removes outward dodge velocity");
+}
 }
 
 int main()
@@ -285,6 +393,10 @@ int main()
 	testBoundaryUsesCollisionRadiusAndSlides();
 	testCeilingStopsAscent();
 	testLargeFrameIsClamped();
+	testDodgeStartsWithBurstAndInvulnerability();
+	testDodgeCooldownExpiresAndResetClearsTransientState();
+	testDodgeCannotPenetrateStaticObstacleOrReapplyInwardSpeed();
+	testDodgeRespectsPlayerRadiusAtFieldBoundary();
 
 	if (failures != 0)
 	{

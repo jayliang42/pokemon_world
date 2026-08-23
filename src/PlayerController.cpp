@@ -68,22 +68,58 @@ PlayerMotionEvents PlayerController::update(const PlayerInput &rawInput, float d
 		return events;
 	}
 
+	const bool wasDodging = isDodging();
+	dodgeTimeRemaining_ = std::max(0.0f, dodgeTimeRemaining_ - deltaSeconds);
+	dodgeCooldownRemaining_ = std::max(0.0f, dodgeCooldownRemaining_ - deltaSeconds);
+	dodgeInvulnerabilityRemaining_ =
+		std::max(0.0f, dodgeInvulnerabilityRemaining_ - deltaSeconds);
+	if (wasDodging && !isDodging())
+	{
+		horizontalVelocity_ = glm::vec3(0.0f);
+	}
+
 	PlayerInput input;
 	input.forward = clampAxis(rawInput.forward);
 	input.turn = clampAxis(rawInput.turn);
 	input.vertical = clampAxis(rawInput.vertical);
 
-	yaw_ = wrapAngle(yaw_ + input.turn * config_.turnSpeed * deltaSeconds);
 	glm::vec3 forward(-std::sin(yaw_), 0.0f, -std::cos(yaw_));
-	float targetSpeed = input.forward >= 0.0f
-	                        ? input.forward * config_.maxForwardSpeed
-	                        : input.forward * config_.maxReverseSpeed;
-	glm::vec3 targetHorizontalVelocity = forward * targetSpeed;
-	float horizontalRate = std::fabs(input.forward) > AXIS_EPSILON
-	                           ? config_.horizontalAcceleration
-	                           : config_.horizontalDeceleration;
-	horizontalVelocity_ = moveToward(horizontalVelocity_, targetHorizontalVelocity,
-	                                 horizontalRate * deltaSeconds);
+	if (dodgeRequested_ && !isDodging() &&
+	    dodgeCooldownRemaining_ <= CONTACT_EPSILON)
+	{
+		glm::vec3 dodgeDirection(horizontalVelocity_.x, 0.0f,
+		                         horizontalVelocity_.z);
+		if (glm::length(dodgeDirection) <= AXIS_EPSILON)
+		{
+			dodgeDirection = forward;
+		}
+		else
+		{
+			dodgeDirection = glm::normalize(dodgeDirection);
+		}
+		horizontalVelocity_ = dodgeDirection * config_.dodgeSpeed;
+		dodgeTimeRemaining_ = std::max(0.0f, config_.dodgeDuration);
+		dodgeCooldownRemaining_ = std::max(0.0f, config_.dodgeCooldown);
+		dodgeInvulnerabilityRemaining_ =
+			std::max(0.0f, config_.dodgeInvulnerability);
+		events.dodgeStarted = true;
+	}
+	dodgeRequested_ = false;
+
+	if (!isDodging())
+	{
+		yaw_ = wrapAngle(yaw_ + input.turn * config_.turnSpeed * deltaSeconds);
+		forward = glm::vec3(-std::sin(yaw_), 0.0f, -std::cos(yaw_));
+		float targetSpeed = input.forward >= 0.0f
+		                        ? input.forward * config_.maxForwardSpeed
+		                        : input.forward * config_.maxReverseSpeed;
+		glm::vec3 targetHorizontalVelocity = forward * targetSpeed;
+		float horizontalRate = std::fabs(input.forward) > AXIS_EPSILON
+		                           ? config_.horizontalAcceleration
+		                           : config_.horizontalDeceleration;
+		horizontalVelocity_ = moveToward(horizontalVelocity_, targetHorizontalVelocity,
+		                                 horizontalRate * deltaSeconds);
+	}
 
 	glm::vec3 nextPosition = position_ + horizontalVelocity_ * deltaSeconds;
 	float centerLimit = std::max(0.0f, config_.fieldHalfExtent - config_.collisionRadius);
@@ -220,6 +256,10 @@ void PlayerController::reset(const glm::vec3 &position, float yaw)
 	horizontalVelocity_ = glm::vec3(0.0f);
 	verticalVelocity_ = 0.0f;
 	yaw_ = wrapAngle(yaw);
+	dodgeTimeRemaining_ = 0.0f;
+	dodgeCooldownRemaining_ = 0.0f;
+	dodgeInvulnerabilityRemaining_ = 0.0f;
+	dodgeRequested_ = false;
 	gravityEnabled_ = false;
 	grounded_ = position_.y <= groundHeight + CONTACT_EPSILON;
 	obstacleContacts_.assign(staticObstacles_.size(), 0);
@@ -254,6 +294,19 @@ void PlayerController::toggleGravity()
 	gravityEnabled_ = !gravityEnabled_;
 }
 
+bool PlayerController::requestDodge()
+{
+	if (dodgeRequested_ || isDodging() ||
+	    dodgeCooldownRemaining_ > CONTACT_EPSILON ||
+	    config_.dodgeSpeed <= AXIS_EPSILON ||
+	    config_.dodgeDuration <= AXIS_EPSILON)
+	{
+		return false;
+	}
+	dodgeRequested_ = true;
+	return true;
+}
+
 const glm::vec3 &PlayerController::position() const
 {
 	return position_;
@@ -282,6 +335,32 @@ bool PlayerController::gravityEnabled() const
 bool PlayerController::grounded() const
 {
 	return grounded_;
+}
+
+bool PlayerController::isDodging() const
+{
+	return dodgeTimeRemaining_ > CONTACT_EPSILON;
+}
+
+bool PlayerController::isInvulnerable() const
+{
+	return dodgeInvulnerabilityRemaining_ > CONTACT_EPSILON;
+}
+
+float PlayerController::dodgeCooldownRemaining() const
+{
+	return dodgeCooldownRemaining_;
+}
+
+float PlayerController::dodgeCooldownFraction() const
+{
+	if (config_.dodgeCooldown <= AXIS_EPSILON)
+	{
+		return 0.0f;
+	}
+	return std::max(0.0f, std::min(1.0f,
+	                                 dodgeCooldownRemaining_ /
+	                                     config_.dodgeCooldown));
 }
 
 float PlayerController::groundHeightAt(float worldX, float worldZ) const
