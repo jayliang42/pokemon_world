@@ -60,6 +60,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       "${CMAKE_SOURCE_DIR}/src"
       "${CMAKE_SOURCE_DIR}/ext/glm/include")
   add_test(NAME pokemon_target_selection COMMAND pokemon_targeting_tests)
+
+  add_executable(capture_mechanics_tests
+      tests/capture_mechanics_test.cpp
+      src/CaptureMechanics.cpp)
+  target_include_directories(capture_mechanics_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src")
+  add_test(NAME pokemon_capture_mechanics COMMAND capture_mechanics_tests)
 endif()
 
 # We don't really need to include header and resource files to build, but it's
