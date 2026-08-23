@@ -46,6 +46,13 @@ struct BattleDamageResult
 	bool sameTypeBonus = false;
 };
 
+struct PlayerHitResult
+{
+	int appliedDamage = 0;
+	int remainingHealth = 0;
+	bool evaded = false;
+};
+
 BattleStats battleStatsFor(PokemonSpecies species);
 constexpr int PLAYER_MOVE_SLOT_COUNT = 3;
 const std::array<BattleMove, PLAYER_MOVE_SLOT_COUNT> &playerBattleMoves();
@@ -57,3 +64,5 @@ bool moveMatchesSpecies(PokemonType moveType, PokemonSpecies species);
 BattleDamageResult resolveBattleDamage(PokemonSpecies attackerSpecies,
 	                                    PokemonSpecies defenderSpecies,
 	                                    const BattleMove &move);
+PlayerHitResult resolvePlayerHit(int currentHealth, int incomingDamage,
+	                             bool invulnerable);

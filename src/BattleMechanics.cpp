@@ -109,3 +109,20 @@ BattleDamageResult resolveBattleDamage(PokemonSpecies attackerSpecies,
 		                               result.effectiveness)));
 	return result;
 }
+
+PlayerHitResult resolvePlayerHit(int currentHealth, int incomingDamage,
+	                             bool invulnerable)
+{
+	PlayerHitResult result;
+	result.remainingHealth = std::max(0, currentHealth);
+	if (invulnerable)
+	{
+		result.evaded = true;
+		return result;
+	}
+
+	result.appliedDamage = std::min(result.remainingHealth,
+	                                std::max(0, incomingDamage));
+	result.remainingHealth -= result.appliedDamage;
+	return result;
+}

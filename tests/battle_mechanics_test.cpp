@@ -83,6 +83,30 @@ void testDamageNeverFallsBelowOne()
 	expectTrue(result.amount >= 1,
 	           "invalid or tiny move power still produces bounded chip damage");
 }
+
+void testPlayerHitAppliesBoundedDamage()
+{
+	const PlayerHitResult hit = resolvePlayerHit(30, 12, false);
+	expectTrue(hit.appliedDamage == 12 && hit.remainingHealth == 18 &&
+	               !hit.evaded,
+	           "ordinary player hit applies damage and reports remaining health");
+
+	const PlayerHitResult knockout = resolvePlayerHit(8, 40, false);
+	expectTrue(knockout.appliedDamage == 8 && knockout.remainingHealth == 0,
+	           "player hit cannot apply more damage than remaining health");
+
+	const PlayerHitResult invalid = resolvePlayerHit(20, -4, false);
+	expectTrue(invalid.appliedDamage == 0 && invalid.remainingHealth == 20,
+	           "negative incoming damage cannot heal or hurt the player");
+}
+
+void testInvulnerabilityEvadesPlayerHit()
+{
+	const PlayerHitResult result = resolvePlayerHit(30, 18, true);
+	expectTrue(result.evaded, "invulnerability marks the incoming hit as evaded");
+	expectTrue(result.appliedDamage == 0 && result.remainingHealth == 30,
+	           "invulnerability prevents both damage and health loss");
+}
 }
 
 int main()
@@ -91,6 +115,8 @@ int main()
 	testTypeMatchAndEffectiveness();
 	testDamageIsDeterministicAndRespectsMatchups();
 	testDamageNeverFallsBelowOne();
+	testPlayerHitAppliesBoundedDamage();
+	testInvulnerabilityEvadesPlayerHit();
 
 	if (failures != 0)
 	{
