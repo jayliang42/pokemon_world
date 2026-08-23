@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace
 {
@@ -122,19 +123,22 @@ PlayerMotionEvents PlayerController::update(const PlayerInput &rawInput, float d
 		                               config_.verticalDrag * deltaSeconds);
 	}
 
-	bool wasAirborne = !grounded_ || position_.y > config_.groundY + CONTACT_EPSILON;
+	const float previousGroundHeight = groundHeightAt(position_.x, position_.z);
+	const float nextGroundHeight = groundHeightAt(nextPosition.x, nextPosition.z);
+	const float nextCeilingHeight = nextGroundHeight + config_.maxAltitude;
+	bool wasAirborne = !grounded_ || position_.y > previousGroundHeight + CONTACT_EPSILON;
 	nextPosition.y = position_.y + verticalVelocity_ * deltaSeconds;
-	if (nextPosition.y <= config_.groundY)
+	if (nextPosition.y <= nextGroundHeight)
 	{
 		events.landed = wasAirborne && verticalVelocity_ < -0.5f;
-		nextPosition.y = config_.groundY;
+		nextPosition.y = nextGroundHeight;
 		verticalVelocity_ = 0.0f;
 		grounded_ = true;
 	}
-	else if (nextPosition.y >= config_.maxAltitude)
+	else if (nextPosition.y >= nextCeilingHeight)
 	{
-		events.hitCeiling = position_.y < config_.maxAltitude - CONTACT_EPSILON;
-		nextPosition.y = config_.maxAltitude;
+		events.hitCeiling = position_.y < nextCeilingHeight - CONTACT_EPSILON;
+		nextPosition.y = nextCeilingHeight;
 		verticalVelocity_ = 0.0f;
 		grounded_ = false;
 	}
@@ -147,17 +151,36 @@ PlayerMotionEvents PlayerController::update(const PlayerInput &rawInput, float d
 	return events;
 }
 
+void PlayerController::reset()
+{
+	reset(glm::vec3(0.0f, groundHeightAt(0.0f, 0.0f), 0.0f));
+}
+
 void PlayerController::reset(const glm::vec3 &position, float yaw)
 {
 	float centerLimit = std::max(0.0f, config_.fieldHalfExtent - config_.collisionRadius);
 	position_.x = std::max(-centerLimit, std::min(centerLimit, position.x));
-	position_.y = std::max(config_.groundY, std::min(config_.maxAltitude, position.y));
 	position_.z = std::max(-centerLimit, std::min(centerLimit, position.z));
+	const float groundHeight = groundHeightAt(position_.x, position_.z);
+	position_.y = std::max(groundHeight, std::min(groundHeight + config_.maxAltitude, position.y));
 	horizontalVelocity_ = glm::vec3(0.0f);
 	verticalVelocity_ = 0.0f;
 	yaw_ = wrapAngle(yaw);
 	gravityEnabled_ = false;
-	grounded_ = position_.y <= config_.groundY + CONTACT_EPSILON;
+	grounded_ = position_.y <= groundHeight + CONTACT_EPSILON;
+}
+
+void PlayerController::setGroundHeightProvider(GroundHeightProvider provider)
+{
+	const bool wasGrounded = grounded_;
+	groundHeightProvider_ = std::move(provider);
+	const float groundHeight = groundHeightAt(position_.x, position_.z);
+	if (wasGrounded || position_.y < groundHeight)
+	{
+		position_.y = groundHeight;
+		verticalVelocity_ = 0.0f;
+	}
+	grounded_ = position_.y <= groundHeight + CONTACT_EPSILON;
 }
 
 void PlayerController::setGravityEnabled(bool enabled)
@@ -198,4 +221,15 @@ bool PlayerController::gravityEnabled() const
 bool PlayerController::grounded() const
 {
 	return grounded_;
+}
+
+float PlayerController::groundHeightAt(float worldX, float worldZ) const
+{
+	if (!groundHeightProvider_)
+	{
+		return config_.groundY;
+	}
+
+	const float height = groundHeightProvider_(worldX, worldZ);
+	return std::isfinite(height) ? height : config_.groundY;
 }

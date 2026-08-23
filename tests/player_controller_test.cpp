@@ -83,6 +83,66 @@ void testGravityAcceleratesAndLandsOnce()
 	expectTrue(landingEvents == 1, "landing event fires once per landing");
 }
 
+void testTerrainGroundPreventsUphillPenetration()
+{
+	PlayerController player;
+	player.setGroundHeightProvider([](float, float worldZ) {
+		return worldZ < -0.1f ? 2.0f : 1.0f;
+	});
+	player.reset(glm::vec3(0.0f, 1.0f, 0.0f));
+	PlayerInput input;
+	input.forward = 1.0f;
+
+	for (int i = 0; i < 20; ++i)
+	{
+		player.update(input, 0.05f);
+	}
+	expectTrue(player.position().z < -0.1f, "player moves onto the raised part of the terrain");
+	expectNear(player.position().y, 2.0f, 0.0001f,
+	           "terrain collision lifts a grounded player instead of allowing penetration");
+	expectTrue(player.grounded(), "walking uphill keeps the player grounded");
+}
+
+void testGravityLandsOnLocalTerrainHeightOnce()
+{
+	PlayerController player;
+	player.setGroundHeightProvider([](float, float) { return 3.0f; });
+	player.reset(glm::vec3(0.0f, 8.0f, 0.0f));
+	player.setGravityEnabled(true);
+	PlayerInput input;
+	int landingEvents = 0;
+
+	for (int i = 0; i < 200; ++i)
+	{
+		if (player.update(input, 0.05f).landed)
+		{
+			++landingEvents;
+		}
+	}
+	expectNear(player.position().y, 3.0f, 0.0001f,
+	           "gravity lands on the sampled terrain instead of the global zero plane");
+	expectNear(player.verticalVelocity(), 0.0f, 0.0001f,
+	           "terrain landing clears downward velocity");
+	expectTrue(player.grounded(), "terrain landing reports grounded state");
+	expectTrue(landingEvents == 1, "terrain landing event fires once per landing");
+}
+
+void testFlightCeilingFollowsLocalTerrainHeight()
+{
+	PlayerController player;
+	player.setGroundHeightProvider([](float, float) { return 4.0f; });
+	player.reset(glm::vec3(0.0f, 4.0f, 0.0f));
+	PlayerInput input;
+	input.vertical = 1.0f;
+
+	for (int i = 0; i < 120; ++i)
+	{
+		player.update(input, 0.05f);
+	}
+	expectNear(player.position().y, 36.0f, 0.0001f,
+	           "maximum altitude is measured above the local terrain");
+}
+
 void testBoundaryUsesCollisionRadiusAndSlides()
 {
 	PlayerController player;
@@ -142,6 +202,9 @@ int main()
 {
 	testSmoothHorizontalAccelerationAndBraking();
 	testGravityAcceleratesAndLandsOnce();
+	testTerrainGroundPreventsUphillPenetration();
+	testGravityLandsOnLocalTerrainHeightOnce();
+	testFlightCeilingFollowsLocalTerrainHeight();
 	testBoundaryUsesCollisionRadiusAndSlides();
 	testCeilingStopsAscent();
 	testLargeFrameIsClamped();

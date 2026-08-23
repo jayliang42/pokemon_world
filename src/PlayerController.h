@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <glm/glm.hpp>
 
 struct PlayerInput
@@ -39,10 +41,14 @@ struct PlayerPhysicsConfig
 class PlayerController
 {
 public:
+	using GroundHeightProvider = std::function<float(float, float)>;
+
 	explicit PlayerController(const PlayerPhysicsConfig &config = PlayerPhysicsConfig());
 
 	PlayerMotionEvents update(const PlayerInput &input, float deltaSeconds);
-	void reset(const glm::vec3 &position = glm::vec3(0.0f), float yaw = 0.0f);
+	void reset();
+	void reset(const glm::vec3 &position, float yaw = 0.0f);
+	void setGroundHeightProvider(GroundHeightProvider provider);
 	void setGravityEnabled(bool enabled);
 	void toggleGravity();
 
@@ -54,7 +60,10 @@ public:
 	bool grounded() const;
 
 private:
+	float groundHeightAt(float worldX, float worldZ) const;
+
 	PlayerPhysicsConfig config_;
+	GroundHeightProvider groundHeightProvider_;
 	glm::vec3 position_ = glm::vec3(0.0f);
 	glm::vec3 horizontalVelocity_ = glm::vec3(0.0f);
 	float verticalVelocity_ = 0.0f;
