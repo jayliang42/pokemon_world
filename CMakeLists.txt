@@ -50,6 +50,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       "${CMAKE_SOURCE_DIR}/src"
       "${CMAKE_SOURCE_DIR}/ext/glm/include")
   add_test(NAME pokemon_behavior_states COMMAND pokemon_behavior_tests)
+
+  add_executable(pokemon_targeting_tests
+      tests/pokemon_targeting_test.cpp
+      src/PokemonTargeting.cpp)
+  target_include_directories(pokemon_targeting_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME pokemon_target_selection COMMAND pokemon_targeting_tests)
 endif()
 
 # We don't really need to include header and resource files to build, but it's
