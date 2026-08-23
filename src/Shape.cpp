@@ -42,9 +42,11 @@ void Shape::loadMesh(const string &meshName, const string *mtlpath, unsigned cha
 		materialIDs = new unsigned int[shapes.size()];
 
 		textureIDs = new unsigned int[shapes.size()];
+		parts_.resize(shapes.size());
 
 		for (int i = 0; i < obj_count; i++)
 		{
+			parts_[i].name = shapes[i].name;
 			// load textures
 			textureIDs[i] = 0;
 			// texture sky
@@ -172,6 +174,21 @@ void Shape::resize()
 			assert(posBuf[i][3 * v + 2] >= -1.0f - epsilon);
 			assert(posBuf[i][3 * v + 2] <= 1.0f + epsilon);
 		}
+
+	for (int i = 0; i < obj_count; ++i)
+	{
+		glm::vec3 minimum(1.1754E+38F);
+		glm::vec3 maximum(-1.1754E+38F);
+		for (size_t v = 0; v < posBuf[i].size() / 3; ++v)
+		{
+			const glm::vec3 position(posBuf[i][3 * v], posBuf[i][3 * v + 1],
+			                         posBuf[i][3 * v + 2]);
+			minimum = glm::min(minimum, position);
+			maximum = glm::max(maximum, position);
+		}
+		parts_[i].minimum = minimum;
+		parts_[i].maximum = maximum;
+	}
 }
 
 void Shape::init()
@@ -228,8 +245,19 @@ void Shape::init()
 void Shape::draw(const shared_ptr<Program> prog, bool use_extern_texures) const
 {
 	for (int i = 0; i < obj_count; i++)
-
 	{
+		drawPart(prog, i, use_extern_texures);
+	}
+}
+
+void Shape::drawPart(const shared_ptr<Program> prog, int partIndex,
+	                 bool useExternalTextures) const
+{
+	if (partIndex < 0 || partIndex >= obj_count)
+	{
+		return;
+	}
+	const int i = partIndex;
 		int h_pos, h_nor, h_tex;
 		h_pos = h_nor = h_tex = -1;
 
@@ -266,7 +294,7 @@ void Shape::draw(const shared_ptr<Program> prog, bool use_extern_texures) const
 
 		// texture
 
-		if (!use_extern_texures)
+		if (!useExternalTextures)
 		{
 			int textureindex = materialIDs[i];
 			if (textureindex >= 0 && textureIDs[textureindex] != 0)
@@ -290,5 +318,15 @@ void Shape::draw(const shared_ptr<Program> prog, bool use_extern_texures) const
 		GLSL::disableVertexAttribArray(h_pos);
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-	}
+}
+
+int Shape::partCount() const
+{
+	return obj_count;
+}
+
+const Shape::PartInfo &Shape::partInfo(int partIndex) const
+{
+	assert(partIndex >= 0 && partIndex < obj_count);
+	return parts_[static_cast<size_t>(partIndex)];
 }
