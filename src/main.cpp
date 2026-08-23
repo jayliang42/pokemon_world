@@ -57,6 +57,14 @@ struct RockPlacement
 	float yaw;
 };
 
+struct CaptureBallVisualPose
+{
+	glm::vec3 position = glm::vec3(0.0f);
+	float pitch = 0.0f;
+	float roll = 0.0f;
+	float scale = 0.17f;
+};
+
 const std::array<RockPlacement, 10> ROCK_PLACEMENTS = {{
 	{glm::vec2(5.0f, -7.0f), glm::vec3(1.0f, 0.70f, 0.85f), 0.25f},
 	{glm::vec2(-7.0f, -10.0f), glm::vec3(0.8f, 0.90f, 0.75f), -0.4f},
@@ -191,7 +199,8 @@ public:
 	WindowManager *windowManager = nullptr;
 
 	// Our shader program
-	std::shared_ptr<Program> prog, prog2, heightshader, pokemon, pokemon2, targetshader;
+	std::shared_ptr<Program> prog, prog2, heightshader, pokemon, pokemon2,
+	                         targetshader, pokeballShader;
 
 	// Contains vertex information for OpenGL
 	GLuint VertexArrayID, VertexArrayID2;
@@ -385,6 +394,49 @@ GLuint rockTex, umbreonTex;
 			             pendingCaptureResult,
 			             static_cast<float>(now - captureSequenceStarted))
 		           : CaptureSequenceSample();
+	}
+
+	CaptureBallVisualPose captureBallVisualPose(
+	    const CaptureSequenceSample &sample) const
+	{
+		CaptureBallVisualPose pose;
+		pose.position = captureBallRestPosition;
+		if (sample.phase == CapturePhase::Throwing)
+		{
+			const float progress = sample.phaseProgress;
+			const float smoothProgress = progress * progress * (3.0f - 2.0f * progress);
+			pose.position = glm::mix(captureThrowStart, captureHitPosition, smoothProgress);
+			pose.position.y += std::sin(progress * 3.1415926f) * 1.25f;
+			pose.pitch = progress * 12.5663706f;
+			pose.roll = progress * 6.2831853f;
+		}
+		else if (sample.phase == CapturePhase::Absorbing)
+		{
+			pose.position = glm::mix(captureHitPosition, captureBallRestPosition,
+			                         sample.phaseProgress);
+			pose.pitch = 12.5663706f + sample.phaseProgress * 3.1415926f;
+			pose.scale += std::sin(sample.phaseProgress * 3.1415926f) * 0.025f;
+		}
+		else if (sample.phase == CapturePhase::Shaking)
+		{
+			const float shake = std::sin(sample.phaseProgress * 6.2831853f);
+			glm::vec2 toPlayer(mypos.x - pose.position.x,
+			                   mypos.z - pose.position.z);
+			glm::vec2 sideways(1.0f, 0.0f);
+			if (glm::length(toPlayer) > 0.001f)
+			{
+				toPlayer = glm::normalize(toPlayer);
+				sideways = glm::vec2(-toPlayer.y, toPlayer.x);
+			}
+			pose.position.x += sideways.x * shake * 0.16f;
+			pose.position.z += sideways.y * shake * 0.16f;
+			pose.roll = shake * 0.42f;
+		}
+		else if (sample.phase == CapturePhase::Succeeded)
+		{
+			pose.scale += std::sin(sample.phaseProgress * 3.1415926f) * 0.012f;
+		}
+		return pose;
 	}
 
 	bool isPendingCaptureTarget(const Pokemon &candidate) const
@@ -679,7 +731,7 @@ GLuint rockTex, umbreonTex;
 		captureHitPosition.y += target->isFlying() ? 0.0f : 0.45f;
 		captureBallRestPosition = glm::vec3(
 			captureHitPosition.x,
-			terrainHeightMap.heightAt(captureHitPosition.x, captureHitPosition.z) + 0.16f,
+			terrainHeightMap.heightAt(captureHitPosition.x, captureHitPosition.z) + 0.18f,
 			captureHitPosition.z);
 		--pokeballs;
 		currentTarget = PokemonTargetSelection();
@@ -1412,6 +1464,22 @@ GLuint rockTex, umbreonTex;
 		targetshader->addUniform("opacity");
 		targetshader->addAttribute("vertPos");
 		targetshader->addAttribute("vertTex");
+
+		pokeballShader = std::make_shared<Program>();
+		pokeballShader->setVerbose(true);
+		pokeballShader->setShaderNames(resourceDirectory + "/pokeball_vertex.glsl",
+		                               resourceDirectory + "/pokeball_frag.glsl");
+		if (!pokeballShader->init())
+		{
+			std::cerr << "Poke Ball shaders failed to compile... exiting!" << std::endl;
+			exit(1);
+		}
+		pokeballShader->addUniform("P");
+		pokeballShader->addUniform("V");
+		pokeballShader->addUniform("M");
+		addSceneLightingUniforms(pokeballShader);
+		pokeballShader->addAttribute("vertPos");
+		pokeballShader->addAttribute("vertNor");
 	}
 
 	/****DRAW
@@ -1588,32 +1656,24 @@ GLuint rockTex, umbreonTex;
 		}
 		if (captureSequenceActive && captureVisualSample.ballVisible)
 		{
-			glm::vec3 ballIndicatorPosition = captureBallRestPosition;
+			const CaptureBallVisualPose ballPose =
+				captureBallVisualPose(captureVisualSample);
+			glm::vec3 ballIndicatorPosition = ballPose.position;
 			glm::vec3 ballIndicatorColor(1.0f, 0.68f, 0.16f);
 			float ballIndicatorDiameter = 0.58f;
 			if (captureVisualSample.phase == CapturePhase::Throwing)
 			{
-				const float progress = captureVisualSample.phaseProgress;
-				const float smoothProgress = progress * progress * (3.0f - 2.0f * progress);
-				ballIndicatorPosition = glm::mix(captureThrowStart, captureHitPosition,
-				                                 smoothProgress);
-				ballIndicatorPosition.y += std::sin(progress * 3.1415926f) * 1.25f;
 				ballIndicatorColor = glm::vec3(1.0f, 0.34f, 0.22f);
 				ballIndicatorDiameter = 0.46f;
 			}
 			else if (captureVisualSample.phase == CapturePhase::Absorbing)
 			{
-				ballIndicatorPosition = glm::mix(
-					captureHitPosition, captureBallRestPosition,
-					captureVisualSample.phaseProgress);
 				ballIndicatorColor = glm::vec3(0.22f, 0.86f, 1.0f);
 				ballIndicatorDiameter =
 					0.58f + std::sin(captureVisualSample.phaseProgress * 3.1415926f) * 0.72f;
 			}
 			else if (captureVisualSample.phase == CapturePhase::Shaking)
 			{
-				const float shake = std::sin(captureVisualSample.phaseProgress * 6.2831853f);
-				ballIndicatorPosition.x += shake * 0.12f;
 				ballIndicatorColor = glm::vec3(1.0f, 0.76f, 0.20f);
 			}
 			else if (captureVisualSample.phase == CapturePhase::Succeeded)
@@ -1637,6 +1697,35 @@ GLuint rockTex, umbreonTex;
 		}
 		glDepthMask(GL_TRUE);
 		targetshader->unbind();
+
+		if (captureSequenceActive && captureVisualSample.ballVisible)
+		{
+			const CaptureBallVisualPose ballPose =
+				captureBallVisualPose(captureVisualSample);
+			const glm::vec3 toPlayer = mypos - ballPose.position;
+			const float faceYaw = std::atan2(toPlayer.x, toPlayer.z);
+			const glm::mat4 ballTranslation =
+				glm::translate(glm::mat4(1.0f), ballPose.position);
+			const glm::mat4 ballFacing = glm::rotate(
+				glm::mat4(1.0f), faceYaw, glm::vec3(0.0f, 1.0f, 0.0f));
+			const glm::mat4 ballPitch = glm::rotate(
+				glm::mat4(1.0f), ballPose.pitch, glm::vec3(1.0f, 0.0f, 0.0f));
+			const glm::mat4 ballRoll = glm::rotate(
+				glm::mat4(1.0f), ballPose.roll, glm::vec3(0.0f, 0.0f, 1.0f));
+			const glm::mat4 ballScale = glm::scale(
+				glm::mat4(1.0f), glm::vec3(ballPose.scale));
+			const glm::mat4 ballModel =
+				ballTranslation * ballFacing * ballPitch * ballRoll * ballScale;
+
+			pokeballShader->bind();
+			glUniformMatrix4fv(pokeballShader->getUniform("P"), 1, GL_FALSE, &P[0][0]);
+			glUniformMatrix4fv(pokeballShader->getUniform("V"), 1, GL_FALSE, &playerView[0][0]);
+			glUniformMatrix4fv(pokeballShader->getUniform("M"), 1, GL_FALSE,
+			                   &ballModel[0][0]);
+			applySceneLighting(pokeballShader, playerView);
+			shape->draw(pokeballShader, false);
+			pokeballShader->unbind();
+		}
 
 		prog2->bind();
 		V = mat4(1);
