@@ -27,6 +27,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       "${CMAKE_SOURCE_DIR}/src"
       "${CMAKE_SOURCE_DIR}/ext/glm/include")
   add_test(NAME player_controller_physics COMMAND player_controller_tests)
+
+  add_executable(terrain_height_map_tests
+      tests/terrain_height_map_test.cpp
+      src/TerrainHeightMap.cpp)
+  target_include_directories(terrain_height_map_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src")
+  add_test(NAME terrain_height_sampling COMMAND terrain_height_map_tests)
 endif()
 
 # We don't really need to include header and resource files to build, but it's
