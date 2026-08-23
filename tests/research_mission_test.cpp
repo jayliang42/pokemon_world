@@ -80,6 +80,21 @@ void testMissionSanitizesInvalidAndOverflowingCounters()
 	               finished.objectives[3].current == 5,
 	           "overflowing runtime counters render as fully complete, not oversized");
 }
+
+void testMissionEventsIncrementSafely()
+{
+	ResearchMissionProgress progress;
+	recordSuperEffectiveHit(progress);
+	recordSafeLanding(progress);
+	expectTrue(progress.superEffectiveHits == 1 && progress.safeLandings == 1,
+	           "runtime mission events increment their matching counters");
+	progress.superEffectiveHits = 999;
+	progress.safeLandings = -20;
+	recordSuperEffectiveHit(progress);
+	recordSafeLanding(progress);
+	expectTrue(progress.superEffectiveHits == 999 && progress.safeLandings == 1,
+	           "mission events saturate high values and repair negative values");
+}
 }
 
 int main()
@@ -87,6 +102,7 @@ int main()
 	testFreshMissionHasFourReadableObjectives();
 	testMissionReflectsBattleLandingAndCaptureProgress();
 	testMissionSanitizesInvalidAndOverflowingCounters();
+	testMissionEventsIncrementSafely();
 	if (failures != 0)
 	{
 		std::cerr << failures << " research mission checks failed" << std::endl;

@@ -4,9 +4,16 @@
 
 namespace
 {
+constexpr int MAX_RECORDED_EVENTS = 999;
+
 int boundedProgress(int value, int target)
 {
 	return std::max(0, std::min(std::max(1, target), value));
+}
+
+void incrementBounded(int &value)
+{
+	value = std::min(MAX_RECORDED_EVENTS, std::max(0, value) + 1);
 }
 }
 
@@ -38,6 +45,16 @@ bool ResearchMissionSnapshot::primaryObjectiveComplete() const
 		}
 	}
 	return false;
+}
+
+void recordSuperEffectiveHit(ResearchMissionProgress &progress)
+{
+	incrementBounded(progress.superEffectiveHits);
+}
+
+void recordSafeLanding(ResearchMissionProgress &progress)
+{
+	incrementBounded(progress.safeLandings);
 }
 
 ResearchMissionSnapshot makeResearchMissionSnapshot(

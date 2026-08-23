@@ -36,6 +36,8 @@ struct ResearchMissionSnapshot
 	bool primaryObjectiveComplete() const;
 };
 
+void recordSuperEffectiveHit(ResearchMissionProgress &progress);
+void recordSafeLanding(ResearchMissionProgress &progress);
 ResearchMissionSnapshot makeResearchMissionSnapshot(
 	int caughtCount, int defeatedCount,
 	const ResearchMissionProgress &progress, int captureGoal);

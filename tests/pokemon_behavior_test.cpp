@@ -114,6 +114,11 @@ void testHealthDamageFaintingAndRestore()
 	expectTrue(firstDamage == 12 && pokemon.getHealth() ==
 	               pokemon.getMaximumHealth() - 12,
 	           "damage reduces health and reports the applied amount");
+	expectTrue(pokemon.setHealth(31) && pokemon.getHealth() == 31,
+	           "validated restore can apply an exact saved health value");
+	expectTrue(!pokemon.setHealth(-1) && !pokemon.setHealth(
+	               pokemon.getMaximumHealth() + 1) && pokemon.getHealth() == 31,
+	           "saved health outside the species range is rejected without mutation");
 	const glm::vec3 positionBeforeFainting = pokemon.getPos();
 	pokemon.applyDamage(10000);
 	expectTrue(pokemon.isFainted() && pokemon.getHealth() == 0,

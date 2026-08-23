@@ -160,6 +160,20 @@ int Pokemon::applyDamage(int amount)
 	return previousHealth - health_;
 }
 
+bool Pokemon::setHealth(int health)
+{
+	if (health < 0 || health > maximumHealth_)
+	{
+		return false;
+	}
+	health_ = health;
+	if (isFainted())
+	{
+		velocity_ = glm::vec3(0.0f);
+	}
+	return true;
+}
+
 void Pokemon::restoreHealth()
 {
 	maximumHealth_ = battleStatsFor(getSpecies()).maximumHealth;

@@ -24,6 +24,7 @@ public:
 	void setCaught(int flag);
 	void startle();
 	int applyDamage(int amount);
+	bool setHealth(int health);
 	void restoreHealth();
 	void setDestination(float x, float y, float z);
 	void setPosition(const glm::vec3 &position);
