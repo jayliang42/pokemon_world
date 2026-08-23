@@ -20,7 +20,7 @@ Modified by: <Zhisong Liang>
 #include "GLSL.h"
 #include "Program.h"
 #include "MatrixStack.h"
-#include "Pokemon.cpp"
+#include "Pokemon.h"
 #include "PlayerController.h"
 #include "TerrainHeightMap.h"
 #include "ThirdPersonCamera.h"
