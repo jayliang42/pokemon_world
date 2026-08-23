@@ -154,7 +154,7 @@ int battleMoveTrailCount(BattleMoveId move)
 
 void applyPlayerBattlePose(PokemonAnimationPose &pose,
 	                       const BattleSequenceSample &sample,
-	                       const BattleMove &move)
+	                       const BattleMove &move, bool playerEvaded)
 {
 	const float eased = easedBattleProgress(sample.phaseProgress);
 	const bool airSlash = move.id == BattleMoveId::AirSlash;
@@ -178,12 +178,27 @@ void applyPlayerBattlePose(PokemonAnimationPose &pose,
 			pose.bodyRoll += std::sin(sample.phaseProgress * 6.2831853f) * 0.10f;
 		}
 	}
-	else if (sample.phase == BattlePhase::PlayerImpact)
+	else if (sample.phase == BattlePhase::PlayerImpact && !playerEvaded)
 	{
 		const float recoil = std::sin(sample.phaseProgress * 3.1415926f);
 		pose.bodyPitch += recoil * 0.11f;
 		pose.bodyRoll += recoil * 0.16f;
 	}
+}
+
+void applyPlayerDodgePose(PokemonAnimationPose &pose, bool dodging,
+	                      bool invulnerable)
+{
+	if (!dodging && !invulnerable)
+	{
+		return;
+	}
+	const float strength = dodging ? 1.0f : 0.48f;
+	pose.bodyPitch -= 0.22f * strength;
+	pose.bodyBob += 0.035f * strength;
+	pose.wingAngle *= dodging ? 0.18f : 0.52f;
+	pose.tailAngle *= 0.58f;
+	pose.breathingScale += 0.016f * strength;
 }
 
 void applyWildBattlePose(PokemonAnimationPose &pose,
@@ -428,10 +443,13 @@ GLuint rockTex, umbreonTex;
 	BattlePhase lastBattlePhase = BattlePhase::Inactive;
 	bool targetDamageApplied = false;
 	bool playerDamageApplied = false;
+	bool playerEvadedCurrentCounter = false;
 	std::string pendingBattleSpecies;
 	glm::vec3 battlePlayerOrigin = glm::vec3(0.0f);
 	glm::vec3 battleTargetPosition = glm::vec3(0.0f);
 	glm::vec3 battlePlayerHitPosition = glm::vec3(0.0f);
+	glm::vec3 dodgeEffectOrigin = glm::vec3(0.0f);
+	double dodgeEffectStarted = -100.0;
 	ResearchMissionProgress researchProgress;
 	double resetConfirmationExpires = -100.0;
 	float playerAnimationPhase = 0.0f;
@@ -600,10 +618,12 @@ GLuint rockTex, umbreonTex;
 		resetRequested = false;
 		currentTarget = PokemonTargetSelection();
 		nextTelemetryUpdate = 0.0;
+		dodgeEffectStarted = -100.0;
 		captureSequenceActive = false;
 		pendingCaptureTarget = nullptr;
 		battleSequenceActive = false;
 		pendingBattleTarget = nullptr;
+		playerEvadedCurrentCounter = false;
 		playerMoveLoadout.reset();
 		resetConfirmationExpires = -100.0;
 		gameFinished = caughtCount >= CAPTURE_GOAL || playerHealth <= 0 ||
@@ -735,6 +755,7 @@ GLuint rockTex, umbreonTex;
 		currentTarget = PokemonTargetSelection();
 		nextTelemetryUpdate = 0.0;
 		captureEffectStarted = -100.0;
+		dodgeEffectStarted = -100.0;
 		captureEffectSucceeded = true;
 		captureSequenceActive = false;
 		pendingCaptureTarget = nullptr;
@@ -750,6 +771,7 @@ GLuint rockTex, umbreonTex;
 		lastBattlePhase = BattlePhase::Inactive;
 		targetDamageApplied = false;
 		playerDamageApplied = false;
+		playerEvadedCurrentCounter = false;
 		pendingBattleSpecies.clear();
 		playerMoveLoadout.reset();
 		researchProgress = ResearchMissionProgress();
@@ -1070,6 +1092,7 @@ GLuint rockTex, umbreonTex;
 				playerHealth, pendingWildDamage.amount,
 				mycam.isInvulnerable() || clearedImpactZone);
 			playerHealth = hit.remainingHealth;
+			playerEvadedCurrentCounter = hit.evaded;
 			if (hit.evaded)
 			{
 				emitGameCue("dodge-success", pendingWildMove.type);
@@ -1189,6 +1212,7 @@ GLuint rockTex, umbreonTex;
 		lastBattlePhase = BattlePhase::PlayerWindup;
 		targetDamageApplied = false;
 		playerDamageApplied = false;
+		playerEvadedCurrentCounter = false;
 		const glm::vec3 forward(-std::sin(mycam.yaw()), 0.0f,
 		                        -std::cos(mycam.yaw()));
 		battlePlayerOrigin = mypos + glm::vec3(0.0f, 0.9f, 0.0f) +
@@ -1306,7 +1330,9 @@ GLuint rockTex, umbreonTex;
 				telemetry << pendingWildMove.name;
 				break;
 			case BattlePhase::PlayerImpact:
-				telemetry << "Charizard hit";
+				telemetry << (playerEvadedCurrentCounter
+				                  ? "Charizard evaded"
+				                  : "Charizard hit");
 				break;
 			case BattlePhase::Recovery:
 				telemetry << "Recovering";
@@ -1402,6 +1428,14 @@ GLuint rockTex, umbreonTex;
 			}
 		}, playerHealth, playerMaximum, targetName.c_str(), targetHealth,
 		   targetMaximum, targetVisible ? 1 : 0);
+
+		EM_ASM({
+			if (Module.onDodgeHud)
+			{
+				Module.onDodgeHud($0, $1, $2 !== 0, $3 !== 0);
+			}
+		}, mycam.dodgeCooldownRemaining(), mycam.dodgeCooldownFraction(),
+		   mycam.isDodging() ? 1 : 0, mycam.isInvulnerable() ? 1 : 0);
 
 		const auto &moves = playerBattleMoves();
 		const bool moveInputBusy =
@@ -2380,9 +2414,12 @@ GLuint rockTex, umbreonTex;
 		playerAnimationInput.phase = playerAnimationPhase;
 		PokemonAnimationPose playerPose =
 			samplePokemonAnimation(playerAnimationInput);
+		const double actionNow = glfwGetTime();
 		const PlayerMotionEvents &motionEvents = mycam.motionEvents();
 		if (motionEvents.dodgeStarted)
 		{
+			dodgeEffectOrigin = mypos;
+			dodgeEffectStarted = actionNow;
 			emitGameCue("dodge");
 			setStatus("Charizard dashed forward.");
 		}
@@ -2405,7 +2442,6 @@ GLuint rockTex, umbreonTex;
 		{
 			setStatus("A boulder blocks the path.");
 		}
-		const double actionNow = glfwGetTime();
 		updateBattleSequence(actionNow);
 		updateCaptureSequence(actionNow);
 		updatePokemonAgents(frametime, actionNow);
@@ -2429,8 +2465,11 @@ GLuint rockTex, umbreonTex;
 		if (battleSequenceActive)
 		{
 			applyPlayerBattlePose(playerPose, battleVisualSample,
-			                      pendingPlayerMove);
+			                      pendingPlayerMove,
+			                      playerEvadedCurrentCounter);
 		}
+		applyPlayerDodgePose(playerPose, mycam.isDodging(),
+		                     mycam.isInvulnerable());
 
 		// Keep the sky centered on the camera and let only its orientation follow
 		// the player's view. Cloud motion is handled slowly in the sky shader.
@@ -2536,6 +2575,26 @@ GLuint rockTex, umbreonTex;
 		drawGroundShadow(
 			glm::vec3(mypos.x, playerGroundHeight + 0.035f, mypos.z),
 			glm::vec2(1.75f, 1.28f) * playerShadowGrowth, playerShadowOpacity);
+		const float dodgeVisualAge =
+			static_cast<float>(captureRenderNow - dodgeEffectStarted);
+		if (dodgeVisualAge >= 0.0f && dodgeVisualAge < 0.46f)
+		{
+			const float progress = glm::clamp(dodgeVisualAge / 0.46f, 0.0f, 1.0f);
+			const float originGroundHeight = terrainHeightMap.heightAt(
+				dodgeEffectOrigin.x, dodgeEffectOrigin.z);
+			drawTargetRing(
+				glm::vec3(dodgeEffectOrigin.x, originGroundHeight + 0.045f,
+				          dodgeEffectOrigin.z),
+				1.35f + progress * 3.15f, glm::vec3(0.22f, 0.82f, 1.0f),
+				(1.0f - progress) * 0.52f);
+		}
+		if (mycam.isInvulnerable())
+		{
+			const float pulse = 1.0f + std::sin(indicatorTime * 24.0f) * 0.08f;
+			drawTargetRing(
+				glm::vec3(mypos.x, playerGroundHeight + 0.05f, mypos.z),
+				1.65f * pulse, glm::vec3(0.56f, 0.94f, 1.0f), 0.42f);
+		}
 
 		for (int i = 0; i < NUM_POKEMON; ++i)
 		{
@@ -3001,8 +3060,15 @@ GLuint rockTex, umbreonTex;
 			{
 				const float progress = easedBattleProgress(
 					battleVisualSample.phaseProgress);
-				drawBattleOrb(battlePlayerHitPosition, 0.28f + progress * 0.68f,
-				              wildPalette, (1.0f - progress) * 0.78f, 0.94f);
+				const float impactScale = playerEvadedCurrentCounter
+				                              ? 0.18f + progress * 0.34f
+				                              : 0.28f + progress * 0.68f;
+				const float impactOpacity = playerEvadedCurrentCounter
+				                                ? (1.0f - progress) * 0.28f
+				                                : (1.0f - progress) * 0.78f;
+				drawBattleOrb(battlePlayerHitPosition, impactScale, wildPalette,
+				              impactOpacity,
+				              playerEvadedCurrentCounter ? 0.18f : 0.94f);
 			}
 
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
