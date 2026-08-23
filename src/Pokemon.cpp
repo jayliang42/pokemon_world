@@ -201,6 +201,13 @@ int Pokemon::getID() const
 	return pokemonID_;
 }
 
+PokemonSpecies Pokemon::getSpecies() const
+{
+	return flying_
+	           ? PokemonSpecies::Charizard
+	           : groundPokemonSpeciesForIndex(pokemonID_);
+}
+
 float Pokemon::random(float minimum, float maximum)
 {
 	randomState_ = randomState_ * 1664525u + 1013904223u;

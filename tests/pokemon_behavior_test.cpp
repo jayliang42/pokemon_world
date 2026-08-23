@@ -45,6 +45,22 @@ void testDeterministicSpawnAvoidsPlayerAndFieldEdge()
 	           "spawn leaves room before the field boundary");
 }
 
+void testPokemonSpeciesAssignmentIsStable()
+{
+	Pokemon umbreonSpecies(0, 0, 12u);
+	Pokemon bulbasaurSpecies(0, 1, 12u);
+	Pokemon charizardSpecies(1, 0, 12u);
+	expectTrue(umbreonSpecies.getSpecies() == PokemonSpecies::Umbreon,
+	           "even ground slots are assigned to Umbreon");
+	expectTrue(bulbasaurSpecies.getSpecies() == PokemonSpecies::Bulbasaur,
+	           "odd ground slots are assigned to Bulbasaur");
+	expectTrue(charizardSpecies.getSpecies() == PokemonSpecies::Charizard,
+	           "flying slots are assigned to Charizard");
+	expectTrue(std::string(pokemonSpeciesName(bulbasaurSpecies.getSpecies())) ==
+	               "Bulbasaur",
+	           "species names are suitable for target feedback");
+}
+
 void testNearbyPlayerTriggersSmoothFleeMotion()
 {
 	Pokemon pokemon(0, 2, 99u);
@@ -202,6 +218,7 @@ void testNamedPartsReceiveArticulatedMotion()
 int main()
 {
 	testDeterministicSpawnAvoidsPlayerAndFieldEdge();
+	testPokemonSpeciesAssignmentIsStable();
 	testNearbyPlayerTriggersSmoothFleeMotion();
 	testFleeStateReturnsToWanderAfterReachingSafety();
 	testLargeFrameIsClampedAndCaughtPokemonStops();

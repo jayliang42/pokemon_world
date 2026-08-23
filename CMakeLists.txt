@@ -46,7 +46,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
   add_executable(pokemon_behavior_tests
       tests/pokemon_behavior_test.cpp
       src/Pokemon.cpp
-      src/PokemonAnimation.cpp)
+      src/PokemonAnimation.cpp
+      src/PokemonSpecies.cpp)
   target_include_directories(pokemon_behavior_tests PRIVATE
       "${CMAKE_SOURCE_DIR}/src"
       "${CMAKE_SOURCE_DIR}/ext/glm/include")

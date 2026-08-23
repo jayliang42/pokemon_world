@@ -381,9 +381,11 @@ GLuint grayTex, rockTex, umbreonTex;
 		}
 		nextTelemetryUpdate = now + 0.12;
 		std::ostringstream telemetry;
-		if (currentTarget.valid())
+		Pokemon *target = targetedPokemon();
+		if (currentTarget.valid() && target)
 		{
-			telemetry << "Target " << std::fixed << std::setprecision(1)
+			telemetry << pokemonSpeciesName(target->getSpecies()) << " "
+			          << std::fixed << std::setprecision(1)
 			          << currentTarget.distance << "m";
 		}
 		else
@@ -421,11 +423,12 @@ GLuint grayTex, rockTex, umbreonTex;
 			setStatus("No target. Face a Pokemon and move closer.");
 			return;
 		}
+		const std::string speciesName = pokemonSpeciesName(target->getSpecies());
 		const float captureRange = currentTarget.flying ? 12.0f : 5.0f;
 		if (currentTarget.distance > captureRange)
 		{
 			std::ostringstream message;
-			message << "Target locked at " << std::fixed << std::setprecision(1)
+			message << speciesName << " locked at " << std::fixed << std::setprecision(1)
 			        << currentTarget.distance << "m. Move closer.";
 			setStatus(message.str());
 			return;
@@ -449,7 +452,7 @@ GLuint grayTex, rockTex, umbreonTex;
 		else
 		{
 			std::ostringstream message;
-			message << "Captured target! " << caughtCount << "/" << CAPTURE_GOAL
+			message << "Captured " << speciesName << "! " << caughtCount << "/" << CAPTURE_GOAL
 			        << " research samples complete.";
 			setStatus(message.str());
 		}

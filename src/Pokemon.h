@@ -4,6 +4,8 @@
 
 #include <glm/glm.hpp>
 
+#include "PokemonSpecies.h"
+
 enum class PokemonBehaviorState
 {
 	Idle,
@@ -32,6 +34,7 @@ public:
 	PokemonBehaviorState getBehaviorState() const;
 	bool isFlying() const;
 	int getID() const;
+	PokemonSpecies getSpecies() const;
 
 private:
 	float random(float minimum, float maximum);
