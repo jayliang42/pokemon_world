@@ -137,13 +137,21 @@ with the asset.
 - `Z`: toggle gravity and return toward the field
 - `X`: attack the locked Pokemon; weakening it improves the capture chance
 - `C`: catch the nearest Pokemon in range
-- `R`: restart the research assignment
+- `R`: press twice within three seconds to start a new research run
 - `Esc`: quit
 
 You start with ten Poke Balls. Wild Pokemon now have health, species-specific
 counter moves, and type effectiveness. Catch five Pokemon to win; using all ten
 balls before reaching the goal ends the round. The browser HUD and native
-window title show health, progress, and the remaining inventory.
+window title show health, progress, and the remaining inventory. Field Research
+also tracks a super-effective hit, a defeated wild Pokemon, a gravity-assisted
+landing, and the five required captures.
+
+Progress autosaves after battles, Poke Ball throws, capture results, and safe
+landings. The browser build restores its validated save from local storage on
+the same browser and device; the native build uses `pokemon_world.save` in its
+working directory. Unknown, malformed, or oversized saves are ignored rather
+than applied.
 
 Movement uses acceleration, braking, vertical momentum, gravity acceleration,
 and a terminal fall speed. The player has a collision radius at the field edge,

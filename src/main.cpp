@@ -1235,6 +1235,20 @@ GLuint rockTex, umbreonTex;
 			}
 		}, playerHealth, playerMaximum, targetName.c_str(), targetHealth,
 		   targetMaximum, targetVisible ? 1 : 0);
+
+		const ResearchMissionSnapshot mission = makeResearchMissionSnapshot(
+			caughtCount, defeatedCount, researchProgress, CAPTURE_GOAL);
+		EM_ASM({
+			if (Module.onMissionProgress)
+			{
+				Module.onMissionProgress(
+					$0, $1, $2, $3, $4, $5, $6, $7, $8);
+			}
+		}, mission.objectives[0].current, mission.objectives[0].target,
+		   mission.objectives[1].current, mission.objectives[1].target,
+		   mission.objectives[2].current, mission.objectives[2].target,
+		   mission.objectives[3].current, mission.objectives[3].target,
+		   mission.completedObjectives());
 #endif
 	}
 

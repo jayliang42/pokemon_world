@@ -48,6 +48,41 @@
       font-size: 0.84rem;
     }
 
+    .header-badges {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .save-state {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #bcf7d5;
+      border-color: rgba(98, 225, 157, 0.38);
+    }
+
+    .save-state::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #56e598;
+      box-shadow: 0 0 10px rgba(86, 229, 152, 0.72);
+      content: '';
+    }
+
+    .save-state.is-error {
+      color: #ffd0d4;
+      border-color: rgba(255, 112, 126, 0.42);
+    }
+
+    .save-state.is-error::before {
+      background: #ff6f7e;
+      box-shadow: 0 0 10px rgba(255, 91, 111, 0.68);
+    }
+
     .game-card {
       overflow: hidden;
       border: 1px solid rgba(166, 203, 255, 0.2);
@@ -90,6 +125,66 @@
     .hud-card[hidden] { display: none; }
     .hud-player { left: 18px; bottom: 18px; }
     .hud-target { right: 18px; top: 18px; }
+
+    .mission-panel {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      width: min(255px, 39%);
+      padding: 11px 12px 9px;
+      border: 1px solid rgba(214, 235, 255, 0.28);
+      border-radius: 12px;
+      background: linear-gradient(145deg, rgba(9, 20, 37, 0.86), rgba(17, 36, 57, 0.7));
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+      backdrop-filter: blur(7px);
+    }
+
+    .mission-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 5px;
+      color: #8ed8ff;
+      font-size: 0.62rem;
+      font-weight: 850;
+      letter-spacing: 0.12em;
+    }
+
+    .mission-count {
+      color: #d7efff;
+      letter-spacing: 0.04em;
+    }
+
+    .mission-row {
+      display: grid;
+      grid-template-columns: 14px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 6px;
+      min-height: 23px;
+      color: #c4d3e5;
+      font-size: 0.66rem;
+      transition: color 160ms ease-out, opacity 160ms ease-out;
+    }
+
+    .mission-marker {
+      color: #6e8eae;
+      font-weight: 900;
+      text-align: center;
+    }
+
+    .mission-value {
+      color: #8faac4;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .mission-row.is-complete {
+      color: #bff3d4;
+    }
+
+    .mission-row.is-complete .mission-marker,
+    .mission-row.is-complete .mission-value {
+      color: #58e096;
+    }
 
     .hud-heading,
     .hud-values {
@@ -203,7 +298,8 @@
 
     @media (max-width: 720px) {
       .header { display: block; }
-      .badge { display: inline-block; margin-top: 14px; }
+      .header-badges { justify-content: flex-start; margin-top: 14px; }
+      .badge { display: inline-block; }
       .controls { grid-template-columns: 1fr; }
       #canvas { min-height: 220px; }
       .status-bar { align-items: flex-start; flex-direction: column; gap: 4px; }
@@ -213,6 +309,9 @@
       .hud-target { right: 9px; top: 9px; }
       .hud-name { font-size: 0.72rem; }
       .hud-tag, .hud-values { font-size: 0.56rem; }
+      .mission-panel { top: 9px; left: 9px; width: min(195px, 47%); padding: 8px; }
+      .mission-heading { font-size: 0.54rem; }
+      .mission-row { grid-template-columns: 12px minmax(0, 1fr) auto; gap: 4px; min-height: 20px; font-size: 0.56rem; }
     }
   </style>
 </head>
@@ -223,13 +322,42 @@
         <h1>Pokemon World</h1>
         <p class="subtitle">Battle, weaken, and catch five Pokemon to finish the research assignment.</p>
       </div>
-      <div class="badge">WebAssembly · WebGL2</div>
+      <div class="header-badges">
+        <div id="save-state" class="badge save-state" role="status">Autosave starting</div>
+        <div class="badge">WebAssembly · WebGL2</div>
+      </div>
     </header>
 
     <section class="game-card">
       <div class="game-stage">
         <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
         <div class="battle-hud" aria-label="Battle status">
+          <section class="mission-panel" aria-label="Field research progress">
+            <div class="mission-heading">
+              <span>FIELD RESEARCH</span>
+              <span id="mission-count" class="mission-count">0 / 4</span>
+            </div>
+            <div id="mission-super" class="mission-row">
+              <span class="mission-marker">•</span>
+              <span>Land a super-effective hit</span>
+              <span class="mission-value">0 / 1</span>
+            </div>
+            <div id="mission-defeat" class="mission-row">
+              <span class="mission-marker">•</span>
+              <span>Defeat a wild Pokemon</span>
+              <span class="mission-value">0 / 1</span>
+            </div>
+            <div id="mission-land" class="mission-row">
+              <span class="mission-marker">•</span>
+              <span>Complete a gravity landing</span>
+              <span class="mission-value">0 / 1</span>
+            </div>
+            <div id="mission-catch" class="mission-row">
+              <span class="mission-marker">•</span>
+              <span>Catch research samples</span>
+              <span class="mission-value">0 / 5</span>
+            </div>
+          </section>
           <section class="hud-card hud-player">
             <div class="hud-heading">
               <span class="hud-name">Charizard</span>
@@ -270,7 +398,7 @@
       <div class="control"><kbd>Z</kbd> Toggle gravity</div>
       <div class="control"><kbd>X</kbd> Attack the locked target</div>
       <div class="control"><kbd>C</kbd> Catch the locked target</div>
-      <div class="control"><kbd>R</kbd> Restart · <kbd>Esc</kbd> Quit</div>
+      <div class="control"><kbd>R</kbd> New run (press twice) · <kbd>Esc</kbd> Quit</div>
     </section>
   </main>
 
@@ -284,6 +412,14 @@
     const targetName = document.getElementById('target-name');
     const targetHpFill = document.getElementById('target-hp-fill');
     const targetHpText = document.getElementById('target-hp-text');
+    const saveStateElement = document.getElementById('save-state');
+    const missionCount = document.getElementById('mission-count');
+    const missionRows = [
+      document.getElementById('mission-super'),
+      document.getElementById('mission-defeat'),
+      document.getElementById('mission-land'),
+      document.getElementById('mission-catch')
+    ];
 
     function updateHealthBar(fillElement, textElement, currentHealth, maximumHealth) {
       const safeMaximum = Math.max(1, Number(maximumHealth) || 1);
@@ -295,6 +431,15 @@
       fillElement.setAttribute('aria-valuemax', String(safeMaximum));
       fillElement.setAttribute('aria-valuenow', String(safeCurrent));
       textElement.textContent = `${safeCurrent} / ${safeMaximum}`;
+    }
+
+    function updateMissionRow(row, currentValue, targetValue) {
+      const target = Math.max(1, Number(targetValue) || 1);
+      const current = Math.max(0, Math.min(target, Number(currentValue) || 0));
+      const complete = current >= target;
+      row.classList.toggle('is-complete', complete);
+      row.querySelector('.mission-marker').textContent = complete ? '✓' : '•';
+      row.querySelector('.mission-value').textContent = `${current} / ${target}`;
     }
 
     var Module = {
@@ -311,6 +456,10 @@
       onGameTelemetry: function (text) {
         telemetryElement.textContent = text || 'No target · Hover · Grounded';
       },
+      onSaveState: function (text, available) {
+        saveStateElement.textContent = text || (available ? 'Autosave ready' : 'Save unavailable');
+        saveStateElement.classList.toggle('is-error', !available);
+      },
       onBattleHud: function (playerHealth, playerMaximum, enemyName,
                              enemyHealth, enemyMaximum, enemyVisible) {
         updateHealthBar(playerHpFill, playerHpText, playerHealth, playerMaximum);
@@ -319,6 +468,18 @@
           targetName.textContent = enemyName || 'Wild Pokemon';
           updateHealthBar(targetHpFill, targetHpText, enemyHealth, enemyMaximum);
         }
+      },
+      onMissionProgress: function (superCurrent, superTarget,
+                                   defeatCurrent, defeatTarget,
+                                   landingCurrent, landingTarget,
+                                   captureCurrent, captureTarget,
+                                   completedObjectives) {
+        updateMissionRow(missionRows[0], superCurrent, superTarget);
+        updateMissionRow(missionRows[1], defeatCurrent, defeatTarget);
+        updateMissionRow(missionRows[2], landingCurrent, landingTarget);
+        updateMissionRow(missionRows[3], captureCurrent, captureTarget);
+        const completed = Math.max(0, Math.min(4, Number(completedObjectives) || 0));
+        missionCount.textContent = `${completed} / 4`;
       },
       print: function (text) {
         console.log(text);
