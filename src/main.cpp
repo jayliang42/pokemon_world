@@ -53,16 +53,16 @@ struct RockPlacement
 };
 
 const std::array<RockPlacement, 10> ROCK_PLACEMENTS = {{
-	{glm::vec2(5.0f, -7.0f), glm::vec3(1.4f, 1.0f, 1.1f), 0.25f},
-	{glm::vec2(-7.0f, -10.0f), glm::vec3(1.1f, 1.4f, 1.0f), -0.4f},
-	{glm::vec2(12.0f, -4.0f), glm::vec3(1.8f, 1.2f, 1.3f), 0.75f},
-	{glm::vec2(-13.0f, 4.0f), glm::vec3(1.5f, 0.9f, 1.2f), 0.1f},
-	{glm::vec2(8.0f, 12.0f), glm::vec3(1.2f, 1.6f, 1.1f), -0.65f},
-	{glm::vec2(-5.0f, 15.0f), glm::vec3(1.7f, 1.1f, 1.4f), 0.45f},
-	{glm::vec2(18.0f, -16.0f), glm::vec3(2.0f, 1.3f, 1.5f), -0.2f},
-	{glm::vec2(-19.0f, -14.0f), glm::vec3(1.3f, 1.8f, 1.2f), 0.6f},
-	{glm::vec2(22.0f, 9.0f), glm::vec3(1.6f, 1.0f, 1.8f), -0.8f},
-	{glm::vec2(-23.0f, 18.0f), glm::vec3(1.9f, 1.2f, 1.4f), 0.3f},
+	{glm::vec2(5.0f, -7.0f), glm::vec3(1.0f, 0.70f, 0.85f), 0.25f},
+	{glm::vec2(-7.0f, -10.0f), glm::vec3(0.8f, 0.90f, 0.75f), -0.4f},
+	{glm::vec2(12.0f, -4.0f), glm::vec3(1.25f, 0.75f, 0.95f), 0.75f},
+	{glm::vec2(-13.0f, 4.0f), glm::vec3(1.05f, 0.60f, 0.90f), 0.1f},
+	{glm::vec2(8.0f, 12.0f), glm::vec3(0.9f, 1.05f, 0.80f), -0.65f},
+	{glm::vec2(-5.0f, 15.0f), glm::vec3(1.15f, 0.70f, 1.0f), 0.45f},
+	{glm::vec2(18.0f, -16.0f), glm::vec3(1.4f, 0.85f, 1.05f), -0.2f},
+	{glm::vec2(-19.0f, -14.0f), glm::vec3(1.0f, 1.15f, 0.90f), 0.6f},
+	{glm::vec2(22.0f, 9.0f), glm::vec3(1.15f, 0.65f, 1.30f), -0.8f},
+	{glm::vec2(-23.0f, 18.0f), glm::vec3(1.3f, 0.75f, 1.0f), 0.3f},
 }};
 vec3 mypos;
 Pokemon umbreons[NUM_POKEMON];
@@ -711,9 +711,9 @@ public:
 		{
 			StaticCollisionCylinder collider;
 			collider.center = rock.center;
-			collider.radius = std::max(rock.scale.x, rock.scale.z);
+			collider.radius = std::max(rock.scale.x, rock.scale.z) * 1.18f;
 			collider.baseY = terrainHeightMap.heightAt(rock.center.x, rock.center.y);
-			collider.height = rock.scale.y * 2.0f;
+			collider.height = rock.scale.y * 2.36f;
 			rockColliders.push_back(collider);
 		}
 		mycam.setStaticObstacles(std::move(rockColliders));
@@ -911,6 +911,7 @@ public:
 		pokemon2->addUniform("P");
 		pokemon2->addUniform("V");
 		pokemon2->addUniform("M");
+		pokemon2->addUniform("surfaceDeform");
 		addSceneLightingUniforms(pokemon2);
 		pokemon2->addAttribute("vertPos");
 		pokemon2->addAttribute("vertTex");
@@ -1092,17 +1093,19 @@ public:
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, rockTex);
+		glUniform1f(pokemon2->getUniform("surfaceDeform"), 0.18f);
 		for (const RockPlacement &rock : ROCK_PLACEMENTS)
 		{
 			const float groundHeight = terrainHeightMap.heightAt(rock.center.x, rock.center.y);
 			T = glm::translate(glm::mat4(1.0f),
-			                   glm::vec3(rock.center.x, groundHeight + rock.scale.y, rock.center.y));
+			                   glm::vec3(rock.center.x, groundHeight + rock.scale.y * 1.08f, rock.center.y));
 			R = glm::rotate(glm::mat4(1.0f), rock.yaw, glm::vec3(0.0f, 1.0f, 0.0f));
 			S = glm::scale(glm::mat4(1.0f), rock.scale);
 			M = T * R * S;
 			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE, &M[0][0]);
 			shape->draw(pokemon2, false);
 		}
+		glUniform1f(pokemon2->getUniform("surfaceDeform"), 0.0f);
 
 		S = glm::scale(glm::mat4(1.0f), glm::vec3(0.34f, 0.34f, 0.34f));
 

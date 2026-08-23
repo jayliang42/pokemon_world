@@ -33,9 +33,9 @@ void testUsesFullBoomWhenViewIsClear()
 	camera.setGroundHeightProvider([](float, float) { return 0.0f; });
 	ThirdPersonCameraPose pose = camera.update(glm::vec3(0.0f), 0.0f, 0.05f);
 
-	expectNear(pose.target.y, 1.35f, 0.0001f, "camera targets the player's upper body");
+	expectNear(pose.target.y, 0.95f, 0.0001f, "camera targets the player's upper body");
 	expectNear(pose.position.x, 0.0f, 0.0001f, "zero yaw keeps the camera centered");
-	expectNear(pose.position.y, 3.75f, 0.0001f, "clear camera uses the configured boom height");
+	expectNear(pose.position.y, 2.60f, 0.0001f, "clear camera uses the configured boom height");
 	expectNear(pose.position.z, 6.5f, 0.0001f, "clear camera stays behind the player");
 	expectNear(pose.boomFraction, 1.0f, 0.0001f, "clear view uses the full camera boom");
 	expectTrue(!pose.obstructed, "clear view is not reported as obstructed");

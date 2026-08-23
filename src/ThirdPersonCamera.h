@@ -7,9 +7,9 @@
 
 struct ThirdPersonCameraConfig
 {
-	float targetHeight = 1.35f;
+	float targetHeight = 0.95f;
 	float boomDistance = 6.5f;
-	float boomHeight = 2.4f;
+	float boomHeight = 1.65f;
 	float collisionRadius = 0.3f;
 	float minimumDistance = 1.25f;
 	float returnSpeed = 2.0f;
