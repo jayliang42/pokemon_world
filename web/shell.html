@@ -56,6 +56,10 @@
       box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
     }
 
+    .game-stage {
+      position: relative;
+    }
+
     #canvas {
       display: block;
       width: 100%;
@@ -63,6 +67,87 @@
       min-height: 360px;
       background: #172238;
       outline: none;
+    }
+
+    .battle-hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+    }
+
+    .hud-card {
+      position: absolute;
+      width: min(270px, 38%);
+      padding: 10px 12px 12px;
+      border: 1px solid rgba(214, 235, 255, 0.34);
+      border-radius: 12px;
+      background: linear-gradient(145deg, rgba(9, 20, 37, 0.88), rgba(17, 36, 57, 0.72));
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
+      backdrop-filter: blur(7px);
+    }
+
+    .hud-card[hidden] { display: none; }
+    .hud-player { left: 18px; bottom: 18px; }
+    .hud-target { right: 18px; top: 18px; }
+
+    .hud-heading,
+    .hud-values {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .hud-name {
+      overflow: hidden;
+      color: #f5fbff;
+      font-size: 0.84rem;
+      font-weight: 750;
+      letter-spacing: 0.015em;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .hud-tag {
+      color: #8ed8ff;
+      font-size: 0.62rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+    }
+
+    .hud-values {
+      margin-top: 6px;
+      color: #bfd1e4;
+      font-size: 0.68rem;
+    }
+
+    .hp-track {
+      height: 8px;
+      margin-top: 5px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.13);
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.38);
+    }
+
+    .hp-fill {
+      width: 100%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #35d681, #75ed9b);
+      box-shadow: 0 0 12px rgba(63, 231, 141, 0.52);
+      transition: width 180ms ease-out, background 180ms ease-out;
+    }
+
+    .hp-fill.is-warning {
+      background: linear-gradient(90deg, #e8a92e, #ffd45a);
+      box-shadow: 0 0 12px rgba(255, 196, 65, 0.48);
+    }
+
+    .hp-fill.is-critical {
+      background: linear-gradient(90deg, #ef465b, #ff7a72);
+      box-shadow: 0 0 12px rgba(255, 77, 91, 0.5);
     }
 
     .status-bar {
@@ -123,6 +208,11 @@
       #canvas { min-height: 220px; }
       .status-bar { align-items: flex-start; flex-direction: column; gap: 4px; }
       #game-status, #telemetry { text-align: left; }
+      .hud-card { width: min(210px, 48%); padding: 8px 9px 9px; }
+      .hud-player { left: 9px; bottom: 9px; }
+      .hud-target { right: 9px; top: 9px; }
+      .hud-name { font-size: 0.72rem; }
+      .hud-tag, .hud-values { font-size: 0.56rem; }
     }
   </style>
 </head>
@@ -137,7 +227,35 @@
     </header>
 
     <section class="game-card">
-      <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+      <div class="game-stage">
+        <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+        <div class="battle-hud" aria-label="Battle status">
+          <section class="hud-card hud-player">
+            <div class="hud-heading">
+              <span class="hud-name">Charizard</span>
+              <span class="hud-tag">ALLY</span>
+            </div>
+            <div class="hud-values"><span>HP</span><span id="player-hp-text">118 / 118</span></div>
+            <div class="hp-track">
+              <div id="player-hp-fill" class="hp-fill" role="progressbar"
+                   aria-label="Charizard health" aria-valuemin="0" aria-valuemax="118"
+                   aria-valuenow="118"></div>
+            </div>
+          </section>
+          <section id="target-hud" class="hud-card hud-target" hidden>
+            <div class="hud-heading">
+              <span id="target-name" class="hud-name">Wild Pokemon</span>
+              <span class="hud-tag">WILD</span>
+            </div>
+            <div class="hud-values"><span>HP</span><span id="target-hp-text">—</span></div>
+            <div class="hp-track">
+              <div id="target-hp-fill" class="hp-fill" role="progressbar"
+                   aria-label="Wild Pokemon health" aria-valuemin="0" aria-valuemax="1"
+                   aria-valuenow="1"></div>
+            </div>
+          </section>
+        </div>
+      </div>
       <div class="status-bar">
         <span id="status">Loading the field...</span>
         <span id="game-status" aria-live="polite">Explore the field.</span>
@@ -160,6 +278,25 @@
     const statusElement = document.getElementById('status');
     const gameStatusElement = document.getElementById('game-status');
     const telemetryElement = document.getElementById('telemetry');
+    const playerHpFill = document.getElementById('player-hp-fill');
+    const playerHpText = document.getElementById('player-hp-text');
+    const targetHud = document.getElementById('target-hud');
+    const targetName = document.getElementById('target-name');
+    const targetHpFill = document.getElementById('target-hp-fill');
+    const targetHpText = document.getElementById('target-hp-text');
+
+    function updateHealthBar(fillElement, textElement, currentHealth, maximumHealth) {
+      const safeMaximum = Math.max(1, Number(maximumHealth) || 1);
+      const safeCurrent = Math.max(0, Math.min(safeMaximum, Number(currentHealth) || 0));
+      const ratio = safeCurrent / safeMaximum;
+      fillElement.style.width = `${ratio * 100}%`;
+      fillElement.classList.toggle('is-warning', ratio > 0.25 && ratio <= 0.5);
+      fillElement.classList.toggle('is-critical', ratio <= 0.25);
+      fillElement.setAttribute('aria-valuemax', String(safeMaximum));
+      fillElement.setAttribute('aria-valuenow', String(safeCurrent));
+      textElement.textContent = `${safeCurrent} / ${safeMaximum}`;
+    }
+
     var Module = {
       canvas: document.getElementById('canvas'),
       locateFile: function (path) {
@@ -173,6 +310,15 @@
       },
       onGameTelemetry: function (text) {
         telemetryElement.textContent = text || 'No target · Hover · Grounded';
+      },
+      onBattleHud: function (playerHealth, playerMaximum, enemyName,
+                             enemyHealth, enemyMaximum, enemyVisible) {
+        updateHealthBar(playerHpFill, playerHpText, playerHealth, playerMaximum);
+        targetHud.hidden = !enemyVisible;
+        if (enemyVisible) {
+          targetName.textContent = enemyName || 'Wild Pokemon';
+          updateHealthBar(targetHpFill, targetHpText, enemyHealth, enemyMaximum);
+        }
       },
       print: function (text) {
         console.log(text);

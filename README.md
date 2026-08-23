@@ -135,13 +135,15 @@ with the asset.
 - `Q` or `Space`: climb
 - `E`: descend
 - `Z`: toggle gravity and return toward the field
+- `X`: attack the locked Pokemon; weakening it improves the capture chance
 - `C`: catch the nearest Pokemon in range
 - `R`: restart the research assignment
 - `Esc`: quit
 
-You start with ten Poke Balls. Catch five Pokemon to win; using all ten balls
-before reaching the goal ends the round. The window title shows the current
-progress and the remaining inventory.
+You start with ten Poke Balls. Wild Pokemon now have health, species-specific
+counter moves, and type effectiveness. Catch five Pokemon to win; using all ten
+balls before reaching the goal ends the round. The browser HUD and native
+window title show health, progress, and the remaining inventory.
 
 Movement uses acceleration, braking, vertical momentum, gravity acceleration,
 and a terminal fall speed. The player has a collision radius at the field edge,

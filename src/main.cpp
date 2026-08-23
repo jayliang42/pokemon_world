@@ -1016,6 +1016,37 @@ GLuint rockTex, umbreonTex;
 				Module.onGameTelemetry(UTF8ToString($0));
 			}
 		}, text.c_str());
+
+		Pokemon *hudTarget = nullptr;
+		if (battleSequenceActive)
+		{
+			hudTarget = pendingBattleTarget;
+		}
+		else if (captureSequenceActive)
+		{
+			hudTarget = pendingCaptureTarget;
+		}
+		else
+		{
+			hudTarget = targetedPokemon();
+		}
+		const bool targetVisible = hudTarget != nullptr;
+		const std::string targetName = targetVisible
+		                                   ? pokemonSpeciesName(hudTarget->getSpecies())
+		                                   : std::string();
+		const int targetHealth = targetVisible ? hudTarget->getHealth() : 0;
+		const int targetMaximum = targetVisible
+		                                  ? hudTarget->getMaximumHealth()
+		                                  : 1;
+		const int playerMaximum =
+			battleStatsFor(PokemonSpecies::Charizard).maximumHealth;
+		EM_ASM({
+			if (Module.onBattleHud)
+			{
+				Module.onBattleHud($0, $1, UTF8ToString($2), $3, $4, $5 !== 0);
+			}
+		}, playerHealth, playerMaximum, targetName.c_str(), targetHealth,
+		   targetMaximum, targetVisible ? 1 : 0);
 #endif
 	}
 
