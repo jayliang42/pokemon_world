@@ -23,12 +23,15 @@ Modified by: <Zhisong Liang>
 #include "BattleSequence.h"
 #include "CaptureMechanics.h"
 #include "CaptureSequence.h"
+#include "GameSave.h"
+#include "GameSaveStorage.h"
 #include "Program.h"
 #include "MatrixStack.h"
 #include "Pokemon.h"
 #include "PokemonAnimation.h"
 #include "PokemonTargeting.h"
 #include "PlayerController.h"
+#include "ResearchMission.h"
 #include "TerrainHeightMap.h"
 #include "ThirdPersonCamera.h"
 
@@ -357,6 +360,8 @@ GLuint rockTex, umbreonTex;
 	glm::vec3 battlePlayerOrigin = glm::vec3(0.0f);
 	glm::vec3 battleTargetPosition = glm::vec3(0.0f);
 	glm::vec3 battlePlayerHitPosition = glm::vec3(0.0f);
+	ResearchMissionProgress researchProgress;
+	double resetConfirmationExpires = -100.0;
 	float playerAnimationPhase = 0.0f;
 
 	void updateWindowTitle()
@@ -394,6 +399,172 @@ GLuint rockTex, umbreonTex;
 			}
 		}, message.c_str());
 #endif
+	}
+
+	void notifySaveState(const std::string &message, bool available)
+	{
+#ifdef __EMSCRIPTEN__
+		EM_ASM({
+			if (Module.onSaveState)
+			{
+				Module.onSaveState(UTF8ToString($0), $1 !== 0);
+			}
+		}, message.c_str(), available ? 1 : 0);
+#else
+		(void)message;
+		(void)available;
+#endif
+	}
+
+	GameSaveLimits gameSaveLimits() const
+	{
+		GameSaveLimits limits;
+		limits.captureGoal = CAPTURE_GOAL;
+		limits.startingPokeballs = STARTING_POKEBALLS;
+		limits.playerMaximumHealth =
+			battleStatsFor(PokemonSpecies::Charizard).maximumHealth;
+		limits.groundMaximumHealth.reserve(NUM_POKEMON);
+		for (int index = 0; index < NUM_POKEMON; ++index)
+		{
+			limits.groundMaximumHealth.push_back(
+				battleStatsFor(groundPokemonSpeciesForIndex(index)).maximumHealth);
+		}
+		limits.flyingMaximumHealth.assign(
+			FLYING_POKEMON,
+			battleStatsFor(PokemonSpecies::Charizard).maximumHealth);
+		return limits;
+	}
+
+	GameSaveData currentGameSave() const
+	{
+		GameSaveData data;
+		data.caughtCount = caughtCount;
+		data.pokeballs = pokeballs;
+		data.defeatedCount = defeatedCount;
+		data.playerHealth = playerHealth;
+		data.missionProgress = researchProgress;
+		data.groundPokemon.reserve(NUM_POKEMON);
+		for (int index = 0; index < NUM_POKEMON; ++index)
+		{
+			data.groundPokemon.push_back(
+				{umbreons[index].getHealth(), umbreons[index].getCaught() != 0});
+		}
+		data.flyingPokemon.reserve(FLYING_POKEMON);
+		for (int index = 0; index < FLYING_POKEMON; ++index)
+		{
+			data.flyingPokemon.push_back(
+				{charizards[index].getHealth(), charizards[index].getCaught() != 0});
+		}
+		return data;
+	}
+
+	bool saveGameProgress(const std::string &message = "Saved")
+	{
+		const std::string payload =
+			encodeGameSave(currentGameSave(), gameSaveLimits());
+		if (payload.empty())
+		{
+			std::cerr << "Autosave was blocked because runtime progress was invalid."
+			          << std::endl;
+			notifySaveState("Save blocked", false);
+			return false;
+		}
+		const bool saved = writeGameSaveStorage(payload);
+		notifySaveState(saved ? message : "Save unavailable", saved);
+		if (!saved)
+		{
+			std::cerr << "Unable to write Pokemon World autosave." << std::endl;
+		}
+		return saved;
+	}
+
+	bool applySavedProgress(const GameSaveData &data)
+	{
+		if (!validateGameSave(data, gameSaveLimits()))
+		{
+			return false;
+		}
+		for (int index = 0; index < NUM_POKEMON; ++index)
+		{
+			if (!umbreons[index].setHealth(data.groundPokemon[index].health))
+			{
+				return false;
+			}
+			umbreons[index].setCaught(data.groundPokemon[index].caught ? 1 : 0);
+		}
+		for (int index = 0; index < FLYING_POKEMON; ++index)
+		{
+			if (!charizards[index].setHealth(data.flyingPokemon[index].health))
+			{
+				return false;
+			}
+			charizards[index].setCaught(data.flyingPokemon[index].caught ? 1 : 0);
+		}
+
+		mycam.reset();
+		caughtCount = data.caughtCount;
+		pokeballs = data.pokeballs;
+		defeatedCount = data.defeatedCount;
+		playerHealth = data.playerHealth;
+		researchProgress = data.missionProgress;
+		captureRequested = false;
+		attackRequested = false;
+		resetRequested = false;
+		currentTarget = PokemonTargetSelection();
+		nextTelemetryUpdate = 0.0;
+		captureSequenceActive = false;
+		pendingCaptureTarget = nullptr;
+		battleSequenceActive = false;
+		pendingBattleTarget = nullptr;
+		resetConfirmationExpires = -100.0;
+		gameFinished = caughtCount >= CAPTURE_GOAL || playerHealth <= 0 ||
+		               (pokeballs == 0 && caughtCount < CAPTURE_GOAL);
+
+		std::ostringstream message;
+		if (caughtCount >= CAPTURE_GOAL)
+		{
+			message << "Research complete! Autosave restored. Press R twice for a new run.";
+		}
+		else if (playerHealth <= 0)
+		{
+			message << "Charizard needs recovery. Autosave restored; press R twice to retry.";
+		}
+		else if (pokeballs == 0)
+		{
+			message << "Out of Poke Balls. Autosave restored; press R twice to retry.";
+		}
+		else
+		{
+			message << "Autosave restored: " << caughtCount << "/" << CAPTURE_GOAL
+			        << " research samples.";
+		}
+		setStatus(message.str());
+		notifySaveState("Progress restored", true);
+		return true;
+	}
+
+	void restoreGameProgress()
+	{
+		const GameSaveStorageReadResult stored = readGameSaveStorage();
+		if (stored.status == GameSaveStorageStatus::NotFound)
+		{
+			setStatus("Explore the field and find a Pokemon.");
+			notifySaveState("Autosave ready", true);
+			return;
+		}
+		if (stored.status == GameSaveStorageStatus::Error)
+		{
+			setStatus("Autosave is unavailable; this run will continue without loading it.");
+			notifySaveState("Save unavailable", false);
+			return;
+		}
+		const GameSaveParseResult parsed =
+			parseGameSave(stored.payload, gameSaveLimits());
+		if (!parsed.valid || !applySavedProgress(parsed.data))
+		{
+			setStatus("Autosave was invalid and was ignored. Press R twice to replace it.");
+			notifySaveState("Invalid save ignored", false);
+		}
 	}
 
 	void addSceneLightingUniforms(const std::shared_ptr<Program> &program)
@@ -449,6 +620,14 @@ GLuint rockTex, umbreonTex;
 
 	void resetGame()
 	{
+		resetRequested = false;
+		if (!clearGameSaveStorage())
+		{
+			setStatus("Unable to clear autosave; the new run was cancelled.");
+			notifySaveState("Save unavailable", false);
+			return;
+		}
+
 		for (int i = 0; i < NUM_POKEMON; ++i)
 		{
 			umbreons[i] = Pokemon(0, i);
@@ -463,7 +642,6 @@ GLuint rockTex, umbreonTex;
 		pokeballs = STARTING_POKEBALLS;
 		captureRequested = false;
 		attackRequested = false;
-		resetRequested = false;
 		gameFinished = false;
 		currentTarget = PokemonTargetSelection();
 		nextTelemetryUpdate = 0.0;
@@ -484,8 +662,11 @@ GLuint rockTex, umbreonTex;
 		targetDamageApplied = false;
 		playerDamageApplied = false;
 		pendingBattleSpecies.clear();
+		researchProgress = ResearchMissionProgress();
+		resetConfirmationExpires = -100.0;
 		playerAnimationPhase = 0.0f;
-		setStatus("Explore the field and find a Pokemon.");
+		setStatus("New research run started. Explore the field and find a Pokemon.");
+		saveGameProgress("New game saved");
 	}
 
 	glm::vec3 pokemonWorldPosition(const Pokemon &candidate) const
@@ -616,12 +797,12 @@ GLuint rockTex, umbreonTex;
 			if (caughtCount >= CAPTURE_GOAL)
 			{
 				gameFinished = true;
-				setStatus("Research complete! Press R to play again.");
+				setStatus("Research complete! Press R twice to play again.");
 			}
 			else if (pokeballs == 0)
 			{
 				gameFinished = true;
-				setStatus("Out of Poke Balls before the goal. Press R to retry.");
+				setStatus("Out of Poke Balls before the goal. Press R twice to retry.");
 			}
 			else
 			{
@@ -649,7 +830,7 @@ GLuint rockTex, umbreonTex;
 			if (pokeballs == 0)
 			{
 				gameFinished = true;
-				message << "Out of Poke Balls. Press R to retry.";
+				message << "Out of Poke Balls. Press R twice to retry.";
 			}
 			else
 			{
@@ -657,6 +838,7 @@ GLuint rockTex, umbreonTex;
 			}
 			setStatus(message.str());
 		}
+		saveGameProgress();
 	}
 
 	void updateCaptureSequence(double now)
@@ -715,7 +897,7 @@ GLuint rockTex, umbreonTex;
 		if (playerHealth <= 0)
 		{
 			gameFinished = true;
-			setStatus("Charizard can no longer battle. Press R to recover and retry.");
+			setStatus("Charizard can no longer battle. Press R twice to recover and retry.");
 			return;
 		}
 		if (targetFainted)
@@ -752,6 +934,10 @@ GLuint rockTex, umbreonTex;
 			{
 				const int appliedDamage =
 					pendingBattleTarget->applyDamage(pendingPlayerDamage.amount);
+				if (pendingPlayerDamage.effectiveness > 1.01f)
+				{
+					recordSuperEffectiveHit(researchProgress);
+				}
 				if (pendingBattleTarget->isFainted())
 				{
 					++defeatedCount;
@@ -766,6 +952,7 @@ GLuint rockTex, umbreonTex;
 					        << " HP)." << effectivenessMessage(pendingPlayerDamage);
 					setStatus(message.str());
 				}
+				saveGameProgress();
 			}
 		}
 		if (pendingBattlePlan.counterEnabled && !playerDamageApplied &&
@@ -781,6 +968,7 @@ GLuint rockTex, umbreonTex;
 			        << battleStatsFor(PokemonSpecies::Charizard).maximumHealth
 			        << " HP)." << effectivenessMessage(pendingWildDamage);
 			setStatus(message.str());
+			saveGameProgress();
 		}
 
 		if (sample.phase != lastBattlePhase)
@@ -1069,7 +1257,7 @@ GLuint rockTex, umbreonTex;
 		if (pokeballs <= 0)
 		{
 			gameFinished = true;
-			setStatus("Out of Poke Balls. Press R to try again.");
+			setStatus("Out of Poke Balls. Press R twice to try again.");
 			return;
 		}
 
@@ -1123,6 +1311,7 @@ GLuint rockTex, umbreonTex;
 		        << static_cast<int>(std::round(pendingCaptureResult.probability * 100.0f))
 		        << "% capture chance.";
 		setStatus(message.str());
+		saveGameProgress();
 	}
 
 	glm::vec3 articulatedPartPivot(const Shape::PartInfo &part) const
@@ -1314,7 +1503,17 @@ GLuint rockTex, umbreonTex;
 		}
 		if (key == GLFW_KEY_R && action == GLFW_PRESS)
 		{
-			resetRequested = true;
+			const double now = glfwGetTime();
+			if (now <= resetConfirmationExpires)
+			{
+				resetRequested = true;
+				resetConfirmationExpires = -100.0;
+			}
+			else
+			{
+				resetConfirmationExpires = now + 3.0;
+				setStatus("Press R again within 3 seconds to start a new run and replace autosave.");
+			}
 		}
 	}
 
@@ -1729,7 +1928,7 @@ GLuint rockTex, umbreonTex;
 
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		updateWindowTitle();
+		restoreGameProgress();
 	}
 
 	// General OGL initialization - set OGL state here
@@ -1963,7 +2162,9 @@ GLuint rockTex, umbreonTex;
 		}
 		else if (motionEvents.landed)
 		{
+			recordSafeLanding(researchProgress);
 			setStatus("Landed safely.");
+			saveGameProgress();
 		}
 		else if (motionEvents.hitBoundary)
 		{
