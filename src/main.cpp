@@ -19,6 +19,8 @@ Modified by: <Zhisong Liang>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "GLSL.h"
+#include "BattleMechanics.h"
+#include "BattleSequence.h"
 #include "CaptureMechanics.h"
 #include "CaptureSequence.h"
 #include "Program.h"
@@ -226,6 +228,7 @@ GLuint rockTex, umbreonTex;
 	int caughtCount = 0;
 	int pokeballs = STARTING_POKEBALLS;
 	bool captureRequested = false;
+	bool attackRequested = false;
 	bool resetRequested = false;
 	bool gameFinished = false;
 	std::string statusMessage = "Explore the field and find a Pokemon.";
@@ -245,6 +248,23 @@ GLuint rockTex, umbreonTex;
 	glm::vec3 captureThrowStart = glm::vec3(0.0f);
 	glm::vec3 captureHitPosition = glm::vec3(0.0f);
 	glm::vec3 captureBallRestPosition = glm::vec3(0.0f);
+	int playerHealth = 118;
+	int defeatedCount = 0;
+	bool battleSequenceActive = false;
+	BattleSequencePlan pendingBattlePlan;
+	BattleDamageResult pendingPlayerDamage;
+	BattleDamageResult pendingWildDamage;
+	BattleMove pendingPlayerMove;
+	BattleMove pendingWildMove;
+	Pokemon *pendingBattleTarget = nullptr;
+	double battleSequenceStarted = -100.0;
+	BattlePhase lastBattlePhase = BattlePhase::Inactive;
+	bool targetDamageApplied = false;
+	bool playerDamageApplied = false;
+	std::string pendingBattleSpecies;
+	glm::vec3 battlePlayerOrigin = glm::vec3(0.0f);
+	glm::vec3 battleTargetPosition = glm::vec3(0.0f);
+	glm::vec3 battlePlayerHitPosition = glm::vec3(0.0f);
 	float playerAnimationPhase = 0.0f;
 
 	void updateWindowTitle()
@@ -255,9 +275,12 @@ GLuint rockTex, umbreonTex;
 		}
 
 		std::ostringstream title;
-		title << "Pokemon World | W/S move  A/D turn  Q/E/Space fly  Z toggle gravity  C catch  R reset"
+		title << "Pokemon World | W/S move  A/D turn  Q/E/Space fly  Z gravity  X attack  C catch  R reset"
 		      << " | Caught " << caughtCount << "/" << CAPTURE_GOAL
+		      << " | Defeated " << defeatedCount
 		      << " | Poke Balls " << pokeballs
+		      << " | HP " << playerHealth << "/"
+		      << battleStatsFor(PokemonSpecies::Charizard).maximumHealth
 		      << " | " << (mycam.gravityEnabled() ? "Gravity ON" : "Hover mode")
 		      << " | " << (mycam.grounded() ? "Grounded" : "Airborne");
 		if (!statusMessage.empty())
@@ -347,6 +370,7 @@ GLuint rockTex, umbreonTex;
 		caughtCount = 0;
 		pokeballs = STARTING_POKEBALLS;
 		captureRequested = false;
+		attackRequested = false;
 		resetRequested = false;
 		gameFinished = false;
 		currentTarget = PokemonTargetSelection();
@@ -359,6 +383,15 @@ GLuint rockTex, umbreonTex;
 		lastCapturePhase = CapturePhase::Inactive;
 		lastCaptureShake = 0;
 		pendingCaptureSpecies.clear();
+		playerHealth = battleStatsFor(PokemonSpecies::Charizard).maximumHealth;
+		defeatedCount = 0;
+		battleSequenceActive = false;
+		pendingBattleTarget = nullptr;
+		battleSequenceStarted = -100.0;
+		lastBattlePhase = BattlePhase::Inactive;
+		targetDamageApplied = false;
+		playerDamageApplied = false;
+		pendingBattleSpecies.clear();
 		playerAnimationPhase = 0.0f;
 		setStatus("Explore the field and find a Pokemon.");
 	}
@@ -442,6 +475,38 @@ GLuint rockTex, umbreonTex;
 	bool isPendingCaptureTarget(const Pokemon &candidate) const
 	{
 		return captureSequenceActive && pendingCaptureTarget == &candidate;
+	}
+
+	BattleSequenceSample currentBattleSample(double now) const
+	{
+		return battleSequenceActive
+		           ? sampleBattleSequence(
+			             pendingBattlePlan,
+			             static_cast<float>(now - battleSequenceStarted))
+		           : BattleSequenceSample();
+	}
+
+	bool isPendingBattleTarget(const Pokemon &candidate) const
+	{
+		return battleSequenceActive && pendingBattleTarget == &candidate;
+	}
+
+	bool battlePhaseAtLeast(BattlePhase phase, BattlePhase threshold) const
+	{
+		return static_cast<int>(phase) >= static_cast<int>(threshold);
+	}
+
+	std::string effectivenessMessage(const BattleDamageResult &damage) const
+	{
+		if (damage.effectiveness > 1.01f)
+		{
+			return " It's super effective!";
+		}
+		if (damage.effectiveness < 0.99f)
+		{
+			return " It's not very effective.";
+		}
+		return std::string();
 	}
 
 	void finishCaptureSequence()
@@ -547,6 +612,148 @@ GLuint rockTex, umbreonTex;
 		}
 	}
 
+	void finishBattleSequence()
+	{
+		Pokemon *target = pendingBattleTarget;
+		const bool targetFainted = target && target->isFainted();
+		battleSequenceActive = false;
+		pendingBattleTarget = nullptr;
+		lastBattlePhase = BattlePhase::Finished;
+
+		if (playerHealth <= 0)
+		{
+			gameFinished = true;
+			setStatus("Charizard can no longer battle. Press R to recover and retry.");
+			return;
+		}
+		if (targetFainted)
+		{
+			std::ostringstream message;
+			message << pendingBattleSpecies << " fainted. " << defeatedCount
+			        << " wild Pokemon defeated.";
+			setStatus(message.str());
+			return;
+		}
+		if (target)
+		{
+			target->startle();
+			std::ostringstream message;
+			message << pendingBattleSpecies << " has " << target->getHealth()
+			        << "/" << target->getMaximumHealth()
+			        << " HP. Weaken it further or press C to throw.";
+			setStatus(message.str());
+		}
+	}
+
+	void updateBattleSequence(double now)
+	{
+		if (!battleSequenceActive)
+		{
+			return;
+		}
+		const BattleSequenceSample sample = currentBattleSample(now);
+		if (!targetDamageApplied &&
+		    battlePhaseAtLeast(sample.phase, BattlePhase::TargetImpact))
+		{
+			targetDamageApplied = true;
+			if (pendingBattleTarget)
+			{
+				const int appliedDamage =
+					pendingBattleTarget->applyDamage(pendingPlayerDamage.amount);
+				if (pendingBattleTarget->isFainted())
+				{
+					++defeatedCount;
+					setStatus(pendingBattleSpecies + " fainted from Ember!");
+				}
+				else
+				{
+					std::ostringstream message;
+					message << pendingBattleSpecies << " took " << appliedDamage
+					        << " damage (" << pendingBattleTarget->getHealth()
+					        << "/" << pendingBattleTarget->getMaximumHealth()
+					        << " HP)." << effectivenessMessage(pendingPlayerDamage);
+					setStatus(message.str());
+				}
+			}
+		}
+		if (pendingBattlePlan.counterEnabled && !playerDamageApplied &&
+		    battlePhaseAtLeast(sample.phase, BattlePhase::PlayerImpact))
+		{
+			playerDamageApplied = true;
+			const int appliedDamage = std::min(playerHealth, pendingWildDamage.amount);
+			playerHealth = std::max(0, playerHealth - appliedDamage);
+			std::ostringstream message;
+			message << pendingBattleSpecies << " dealt " << appliedDamage
+			        << " damage with " << pendingWildMove.name << " (Charizard "
+			        << playerHealth << "/"
+			        << battleStatsFor(PokemonSpecies::Charizard).maximumHealth
+			        << " HP)." << effectivenessMessage(pendingWildDamage);
+			setStatus(message.str());
+		}
+
+		if (sample.phase != lastBattlePhase)
+		{
+			lastBattlePhase = sample.phase;
+			if (sample.phase == BattlePhase::PlayerProjectile)
+			{
+				setStatus(std::string("Charizard used ") + pendingPlayerMove.name + "!");
+			}
+			else if (sample.phase == BattlePhase::WildWindup &&
+			         pendingBattlePlan.counterEnabled)
+			{
+				setStatus(pendingBattleSpecies + " prepares " + pendingWildMove.name + "!");
+			}
+		}
+		if (sample.finished)
+		{
+			finishBattleSequence();
+		}
+	}
+
+	void attackTargetedPokemon()
+	{
+		if (captureSequenceActive || battleSequenceActive)
+		{
+			setStatus("Finish the current action before attacking again.");
+			return;
+		}
+		if (gameFinished)
+		{
+			return;
+		}
+		Pokemon *target = targetedPokemon();
+		if (!target)
+		{
+			setStatus("No battle target. Face a Pokemon inside the lock-on range.");
+			return;
+		}
+
+		pendingBattleTarget = target;
+		pendingBattleSpecies = pokemonSpeciesName(target->getSpecies());
+		pendingPlayerMove = playerBattleMove();
+		pendingWildMove = wildBattleMoveFor(target->getSpecies());
+		pendingPlayerDamage = resolveBattleDamage(
+			PokemonSpecies::Charizard, target->getSpecies(), pendingPlayerMove);
+		pendingWildDamage = resolveBattleDamage(
+			target->getSpecies(), PokemonSpecies::Charizard, pendingWildMove);
+		pendingBattlePlan.counterEnabled =
+			target->getHealth() > pendingPlayerDamage.amount;
+		battleSequenceActive = true;
+		battleSequenceStarted = glfwGetTime();
+		lastBattlePhase = BattlePhase::PlayerWindup;
+		targetDamageApplied = false;
+		playerDamageApplied = false;
+		const glm::vec3 forward(-std::sin(mycam.yaw()), 0.0f,
+		                        -std::cos(mycam.yaw()));
+		battlePlayerOrigin = mypos + glm::vec3(0.0f, 0.9f, 0.0f) +
+		                     forward * 0.75f;
+		battleTargetPosition = pokemonWorldPosition(*target);
+		battleTargetPosition.y += target->isFlying() ? 0.0f : 0.52f;
+		battlePlayerHitPosition = mypos + glm::vec3(0.0f, 0.82f, 0.0f);
+		currentTarget = PokemonTargetSelection();
+		setStatus("Charizard readies Ember against " + pendingBattleSpecies + ".");
+	}
+
 	void updatePokemonAgents(double deltaSeconds, double now)
 	{
 		if (gameFinished)
@@ -556,8 +763,9 @@ GLuint rockTex, umbreonTex;
 		const CaptureSequenceSample captureSample = currentCaptureSample(now);
 		for (int i = 0; i < NUM_POKEMON; ++i)
 		{
-			if (isPendingCaptureTarget(umbreons[i]) &&
-			    captureSample.phase != CapturePhase::BrokeFree)
+			if (isPendingBattleTarget(umbreons[i]) ||
+			    (isPendingCaptureTarget(umbreons[i]) &&
+			     captureSample.phase != CapturePhase::BrokeFree))
 			{
 				continue;
 			}
@@ -565,8 +773,9 @@ GLuint rockTex, umbreonTex;
 		}
 		for (int i = 0; i < FLYING_POKEMON; ++i)
 		{
-			if (isPendingCaptureTarget(charizards[i]) &&
-			    captureSample.phase != CapturePhase::BrokeFree)
+			if (isPendingBattleTarget(charizards[i]) ||
+			    (isPendingCaptureTarget(charizards[i]) &&
+			     captureSample.phase != CapturePhase::BrokeFree))
 			{
 				continue;
 			}
@@ -576,7 +785,7 @@ GLuint rockTex, umbreonTex;
 
 	void refreshTarget()
 	{
-		if (captureSequenceActive)
+		if (captureSequenceActive || battleSequenceActive)
 		{
 			currentTarget = PokemonTargetSelection();
 			return;
@@ -628,7 +837,45 @@ GLuint rockTex, umbreonTex;
 		}
 		nextTelemetryUpdate = now + 0.12;
 		std::ostringstream telemetry;
-		if (captureSequenceActive)
+		if (battleSequenceActive)
+		{
+			const BattleSequenceSample sample = currentBattleSample(now);
+			telemetry << pendingBattleSpecies << " · ";
+			switch (sample.phase)
+			{
+			case BattlePhase::PlayerWindup:
+				telemetry << "Charging Ember";
+				break;
+			case BattlePhase::PlayerProjectile:
+				telemetry << "Ember airborne";
+				break;
+			case BattlePhase::TargetImpact:
+				telemetry << "Target hit";
+				break;
+			case BattlePhase::WildWindup:
+				telemetry << "Countering";
+				break;
+			case BattlePhase::WildProjectile:
+				telemetry << pendingWildMove.name;
+				break;
+			case BattlePhase::PlayerImpact:
+				telemetry << "Charizard hit";
+				break;
+			case BattlePhase::Recovery:
+				telemetry << "Recovering";
+				break;
+			case BattlePhase::Inactive:
+			case BattlePhase::Finished:
+				telemetry << "Resolving";
+				break;
+			}
+			if (pendingBattleTarget)
+			{
+				telemetry << " · Enemy HP " << pendingBattleTarget->getHealth()
+				          << "/" << pendingBattleTarget->getMaximumHealth();
+			}
+		}
+		else if (captureSequenceActive)
 		{
 			const CaptureSequenceSample sample = currentCaptureSample(now);
 			telemetry << pendingCaptureSpecies << " · ";
@@ -659,14 +906,17 @@ GLuint rockTex, umbreonTex;
 		{
 			telemetry << pokemonSpeciesName(target->getSpecies()) << " "
 			          << std::fixed << std::setprecision(1)
-			          << currentTarget.distance << "m";
+			          << currentTarget.distance << "m · HP "
+			          << target->getHealth() << "/" << target->getMaximumHealth();
 		}
 		else
 		{
 			telemetry << "No target";
 		}
 		telemetry << " · " << (mycam.gravityEnabled() ? "Gravity" : "Hover")
-		          << " · " << (mycam.grounded() ? "Grounded" : "Airborne");
+		          << " · " << (mycam.grounded() ? "Grounded" : "Airborne")
+		          << " · Charizard HP " << playerHealth << "/"
+		          << battleStatsFor(PokemonSpecies::Charizard).maximumHealth;
 		const std::string text = telemetry.str();
 		EM_ASM({
 			if (Module.onGameTelemetry)
@@ -679,6 +929,11 @@ GLuint rockTex, umbreonTex;
 
 	void captureNearestPokemon()
 	{
+		if (battleSequenceActive)
+		{
+			setStatus("Finish the battle exchange before throwing a Poke Ball.");
+			return;
+		}
 		if (captureSequenceActive)
 		{
 			setStatus("A capture attempt is already in progress.");
@@ -929,6 +1184,10 @@ GLuint rockTex, umbreonTex;
 		if (key == GLFW_KEY_C && action == GLFW_PRESS)
 		{
 			captureRequested = true;
+		}
+		if (key == GLFW_KEY_X && action == GLFW_PRESS)
+		{
+			attackRequested = true;
 		}
 		if (key == GLFW_KEY_R && action == GLFW_PRESS)
 		{
@@ -1529,6 +1788,11 @@ GLuint rockTex, umbreonTex;
 		{
 			resetGame();
 		}
+		if (captureSequenceActive || battleSequenceActive)
+		{
+			mycam.w = mycam.a = mycam.s = mycam.d = 0;
+			mycam.q = mycam.e = mycam.space = 0;
+		}
 		glm::mat4 playerView = mycam.process(frametime);
 		const glm::vec3 playerVelocity = mycam.velocity();
 		const float playerSpeedRatio = glm::clamp(
@@ -1563,16 +1827,22 @@ GLuint rockTex, umbreonTex;
 		{
 			setStatus("A boulder blocks the path.");
 		}
-		const double captureNow = glfwGetTime();
-		updateCaptureSequence(captureNow);
-		updatePokemonAgents(frametime, captureNow);
+		const double actionNow = glfwGetTime();
+		updateBattleSequence(actionNow);
+		updateCaptureSequence(actionNow);
+		updatePokemonAgents(frametime, actionNow);
 		refreshTarget();
-		updateWebTelemetry();
+		if (attackRequested)
+		{
+			attackTargetedPokemon();
+			attackRequested = false;
+		}
 		if (captureRequested)
 		{
 			captureNearestPokemon();
 			captureRequested = false;
 		}
+		updateWebTelemetry();
 		const double captureRenderNow = glfwGetTime();
 		const CaptureSequenceSample captureVisualSample =
 			currentCaptureSample(captureRenderNow);
