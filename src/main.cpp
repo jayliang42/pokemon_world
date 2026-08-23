@@ -190,8 +190,8 @@ public:
 	GLuint MeshPosID, MeshTexID, IndexBufferIDBox;
 
 	// texture data
-	GLuint Texture, grassTexture, HeightTex, PokeballTex, fireTex, Texture5;
-	GLuint grayTex, rockTex;
+GLuint Texture, grassTexture, HeightTex, PokeballTex, fireTex, Texture5;
+GLuint grayTex, rockTex, umbreonTex;
 	TerrainHeightMap terrainHeightMap;
 	std::string resourceDirectory;
 	int caughtCount = 0;
@@ -933,6 +933,28 @@ public:
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 		glGenerateMipmap(GL_TEXTURE_2D);
 
+		// texture 9: the original Umbreon UV atlas.
+		str = resourceDirectory + "/Texture/umbreon.png";
+		strcpy(filepath, str.c_str());
+		data = stbi_load(filepath, &width, &height, &channels, 4);
+		if (!data)
+		{
+			std::cerr << "Unable to load Umbreon texture: " << str << std::endl;
+			exit(1);
+		}
+		glGenTextures(1, &umbreonTex);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, umbreonTex);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA,
+		             GL_UNSIGNED_BYTE, data);
+		glGenerateMipmap(GL_TEXTURE_2D);
+		stbi_image_free(data);
+		data = nullptr;
+
 		//[TWOTEXTURES]
 		// set the 2 textures to the correct samplers in the fragment shader:
 		GLuint Tex1Location = glGetUniformLocation(prog->pid, "tex"); // tex, tex2... sampler in the fragment shader
@@ -1345,10 +1367,16 @@ public:
 			mat4 Breathing = glm::scale(glm::mat4(1.0f),
 			                            glm::vec3(1.0f, pose.breathingScale, 1.0f));
 			const mat4 creatureRoot = T * R * Lean * S * Breathing;
-			shared_ptr<Shape> wildShape = companionShapes.empty()
+			const bool renderUmbreon = companionShapes.empty() || i % 5 == 0;
+			shared_ptr<Shape> wildShape = renderUmbreon
 				? umbreon
 				: companionShapes[static_cast<size_t>(i) % companionShapes.size()];
-			drawArticulatedShape(wildShape, creatureRoot, pose, false);
+			if (renderUmbreon)
+			{
+				glActiveTexture(GL_TEXTURE0);
+				glBindTexture(GL_TEXTURE_2D, umbreonTex);
+			}
+			drawArticulatedShape(wildShape, creatureRoot, pose, renderUmbreon);
 		}
 
 		S = glm::scale(glm::mat4(1.0f), glm::vec3(1.6f, 1.6f, 1.6f));
