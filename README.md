@@ -4,6 +4,14 @@ Pokemon World - developed by OpenGL
 **Building and Running the Lab/Assignment**
 ===========================================
 
+# Pokemon World
+
+This is a small OpenGL exploration game: fly around the field, find roaming
+Pokemon, and complete a short research assignment by catching five of them.
+
+**[Play the browser version](https://jayliang42.github.io/pokemon_world/)**
+
+
 All platforms
 -------------
 
@@ -75,12 +83,7 @@ Other versions of Visual Studio are listed on the CMake page
 - To add a commandline argument (`../resources`), right-click on `final` in
   the project explorer and then click on "Properties" and then click to
   "Debugging."
-# Pokemon World
 
-This is a small OpenGL exploration game: fly around the field, find roaming
-Pokemon, and complete a short research assignment by catching five of them.
-
-**[Play the browser version](https://jayliang42.github.io/pokemon_world/)**
 
 ## Build and run
 
