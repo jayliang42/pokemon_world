@@ -10,6 +10,7 @@ Modified by: <Zhisong Liang>
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <sstream>
 #include <utility>
@@ -21,6 +22,7 @@ Modified by: <Zhisong Liang>
 #include "Program.h"
 #include "MatrixStack.h"
 #include "Pokemon.h"
+#include "PokemonTargeting.h"
 #include "PlayerController.h"
 #include "TerrainHeightMap.h"
 #include "ThirdPersonCamera.h"
@@ -198,6 +200,8 @@ public:
 	bool resetRequested = false;
 	bool gameFinished = false;
 	std::string statusMessage = "Explore the field and find a Pokemon.";
+	PokemonTargetSelection currentTarget;
+	double nextTelemetryUpdate = 0.0;
 
 	void updateWindowTitle()
 	{
@@ -275,7 +279,103 @@ public:
 		captureRequested = false;
 		resetRequested = false;
 		gameFinished = false;
+		currentTarget = PokemonTargetSelection();
+		nextTelemetryUpdate = 0.0;
 		setStatus("Explore the field and find a Pokemon.");
+	}
+
+	glm::vec3 pokemonWorldPosition(const Pokemon &candidate) const
+	{
+		glm::vec3 position = candidate.getPos();
+		if (!candidate.isFlying())
+		{
+			position.y = terrainHeightMap.heightAt(position.x, position.z);
+		}
+		return position;
+	}
+
+	void updatePokemonAgents(double deltaSeconds)
+	{
+		if (gameFinished)
+		{
+			return;
+		}
+		for (int i = 0; i < NUM_POKEMON; ++i)
+		{
+			umbreons[i].update(deltaSeconds, mypos);
+		}
+		for (int i = 0; i < FLYING_POKEMON; ++i)
+		{
+			charizards[i].update(deltaSeconds, mypos);
+		}
+	}
+
+	void refreshTarget()
+	{
+		std::vector<PokemonTargetCandidate> candidates;
+		candidates.reserve(NUM_POKEMON + FLYING_POKEMON);
+		for (int i = 0; i < NUM_POKEMON; ++i)
+		{
+			PokemonTargetCandidate candidate;
+			candidate.index = i;
+			candidate.caught = umbreons[i].getCaught() != 0;
+			candidate.position = pokemonWorldPosition(umbreons[i]);
+			candidates.push_back(candidate);
+		}
+		for (int i = 0; i < FLYING_POKEMON; ++i)
+		{
+			PokemonTargetCandidate candidate;
+			candidate.index = i;
+			candidate.flying = true;
+			candidate.caught = charizards[i].getCaught() != 0;
+			candidate.position = pokemonWorldPosition(charizards[i]);
+			candidates.push_back(candidate);
+		}
+		currentTarget = selectPokemonTarget(mypos, mycam.yaw(), candidates);
+	}
+
+	Pokemon *targetedPokemon()
+	{
+		if (!currentTarget.valid())
+		{
+			return nullptr;
+		}
+		if (currentTarget.flying)
+		{
+			return currentTarget.index < FLYING_POKEMON ? &charizards[currentTarget.index] : nullptr;
+		}
+		return currentTarget.index < NUM_POKEMON ? &umbreons[currentTarget.index] : nullptr;
+	}
+
+	void updateWebTelemetry()
+	{
+#ifdef __EMSCRIPTEN__
+		const double now = glfwGetTime();
+		if (now < nextTelemetryUpdate)
+		{
+			return;
+		}
+		nextTelemetryUpdate = now + 0.12;
+		std::ostringstream telemetry;
+		if (currentTarget.valid())
+		{
+			telemetry << "Target " << std::fixed << std::setprecision(1)
+			          << currentTarget.distance << "m";
+		}
+		else
+		{
+			telemetry << "No target";
+		}
+		telemetry << " · " << (mycam.gravityEnabled() ? "Gravity" : "Hover")
+		          << " · " << (mycam.grounded() ? "Grounded" : "Airborne");
+		const std::string text = telemetry.str();
+		EM_ASM({
+			if (Module.onGameTelemetry)
+			{
+				Module.onGameTelemetry(UTF8ToString($0));
+			}
+		}, text.c_str());
+#endif
 	}
 
 	void captureNearestPokemon()
@@ -291,38 +391,19 @@ public:
 			return;
 		}
 
-		Pokemon *target = nullptr;
-		float targetDistance = std::numeric_limits<float>::max();
-		auto consider = [&](Pokemon &candidate, float captureRange, bool followsTerrain) {
-			if (candidate.getCaught())
-			{
-				return;
-			}
-			glm::vec3 candidatePosition = candidate.getPos();
-			if (followsTerrain)
-			{
-				candidatePosition.y = terrainHeightMap.heightAt(candidatePosition.x, candidatePosition.z);
-			}
-			float distance = glm::distance(mypos, candidatePosition);
-			if (distance <= captureRange && distance < targetDistance)
-			{
-				target = &candidate;
-				targetDistance = distance;
-			}
-		};
-
-		for (int i = 0; i < NUM_POKEMON; ++i)
-		{
-			consider(umbreons[i], 5.0f, true);
-		}
-		for (int i = 0; i < FLYING_POKEMON; ++i)
-		{
-			consider(charizards[i], 12.0f, false);
-		}
-
+		Pokemon *target = targetedPokemon();
 		if (!target)
 		{
-			setStatus("No Pokemon in range. Move closer and press C.");
+			setStatus("No target. Face a Pokemon and move closer.");
+			return;
+		}
+		const float captureRange = currentTarget.flying ? 12.0f : 5.0f;
+		if (currentTarget.distance > captureRange)
+		{
+			std::ostringstream message;
+			message << "Target locked at " << std::fixed << std::setprecision(1)
+			        << currentTarget.distance << "m. Move closer.";
+			setStatus(message.str());
 			return;
 		}
 
@@ -341,8 +422,12 @@ public:
 		}
 		else
 		{
-			setStatus("Captured a Pokemon!");
+			std::ostringstream message;
+			message << "Captured target! " << caughtCount << "/" << CAPTURE_GOAL
+			        << " research samples complete.";
+			setStatus(message.str());
 		}
+		refreshTarget();
 	}
 
 	void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
@@ -976,6 +1061,9 @@ public:
 		{
 			setStatus("A boulder blocks the path.");
 		}
+		updatePokemonAgents(frametime);
+		refreshTarget();
+		updateWebTelemetry();
 		if (captureRequested)
 		{
 			captureNearestPokemon();
@@ -1121,7 +1209,6 @@ public:
 				continue;
 			}
 
-			umbreons[i].update(frametime, mypos);
 			float distance = glm::length(glm::vec2(mypos.x - umbreons[i].getPos().x,
 			                                      mypos.z - umbreons[i].getPos().z));
 
@@ -1159,7 +1246,6 @@ public:
 			{
 				continue;
 			}
-			charizards[i].update(frametime, mypos);
 			float distance = glm::length(glm::vec2(mypos.x - charizards[i].getPos().x,
 			                                      mypos.z - charizards[i].getPos().z));
 			if (distance > 100)
