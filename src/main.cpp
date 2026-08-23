@@ -5,12 +5,14 @@ Modified by: <Zhisong Liang>
 
 #include <iostream>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
 #include <limits>
 #include <sstream>
+#include <utility>
 #include <vector>
 #include "GLCompat.h"
 #define STB_IMAGE_IMPLEMENTATION
@@ -41,6 +43,26 @@ constexpr int NUM_POKEMON = 100;
 constexpr int FLYING_POKEMON = NUM_POKEMON / 5;
 constexpr int STARTING_POKEBALLS = 10;
 constexpr int CAPTURE_GOAL = 5;
+
+struct RockPlacement
+{
+	glm::vec2 center;
+	glm::vec3 scale;
+	float yaw;
+};
+
+const std::array<RockPlacement, 10> ROCK_PLACEMENTS = {{
+	{glm::vec2(5.0f, -7.0f), glm::vec3(1.4f, 1.0f, 1.1f), 0.25f},
+	{glm::vec2(-7.0f, -10.0f), glm::vec3(1.1f, 1.4f, 1.0f), -0.4f},
+	{glm::vec2(12.0f, -4.0f), glm::vec3(1.8f, 1.2f, 1.3f), 0.75f},
+	{glm::vec2(-13.0f, 4.0f), glm::vec3(1.5f, 0.9f, 1.2f), 0.1f},
+	{glm::vec2(8.0f, 12.0f), glm::vec3(1.2f, 1.6f, 1.1f), -0.65f},
+	{glm::vec2(-5.0f, 15.0f), glm::vec3(1.7f, 1.1f, 1.4f), 0.45f},
+	{glm::vec2(18.0f, -16.0f), glm::vec3(2.0f, 1.3f, 1.5f), -0.2f},
+	{glm::vec2(-19.0f, -14.0f), glm::vec3(1.3f, 1.8f, 1.2f), 0.6f},
+	{glm::vec2(22.0f, 9.0f), glm::vec3(1.6f, 1.0f, 1.8f), -0.8f},
+	{glm::vec2(-23.0f, 18.0f), glm::vec3(1.9f, 1.2f, 1.4f), 0.3f},
+}};
 vec3 mypos;
 Pokemon umbreons[NUM_POKEMON];
 Pokemon charizards[FLYING_POKEMON];
@@ -117,6 +139,11 @@ public:
 		pos = -mypos;
 	}
 
+	void setStaticObstacles(std::vector<StaticCollisionCylinder> obstacles)
+	{
+		controller_.setStaticObstacles(std::move(obstacles));
+	}
+
 	const PlayerMotionEvents &motionEvents() const
 	{
 		return motionEvents_;
@@ -149,7 +176,7 @@ public:
 
 	// texture data
 	GLuint Texture, grassTexture, HeightTex, PokeballTex, fireTex, Texture5;
-	GLuint grayTex;
+	GLuint grayTex, rockTex;
 	TerrainHeightMap terrainHeightMap;
 	std::string resourceDirectory;
 	int caughtCount = 0;
@@ -665,6 +692,18 @@ public:
 		mycam.setGroundHeightProvider([this](float worldX, float worldZ) {
 			return terrainHeightMap.heightAt(worldX, worldZ);
 		});
+		std::vector<StaticCollisionCylinder> rockColliders;
+		rockColliders.reserve(ROCK_PLACEMENTS.size());
+		for (const RockPlacement &rock : ROCK_PLACEMENTS)
+		{
+			StaticCollisionCylinder collider;
+			collider.center = rock.center;
+			collider.radius = std::max(rock.scale.x, rock.scale.z);
+			collider.baseY = terrainHeightMap.heightAt(rock.center.x, rock.center.y);
+			collider.height = rock.scale.y * 2.0f;
+			rockColliders.push_back(collider);
+		}
+		mycam.setStaticObstacles(std::move(rockColliders));
 
 		// texture 4
 		str = resourceDirectory + "/Texture/pokeball.jpg";
@@ -679,6 +718,27 @@ public:
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 		glGenerateMipmap(GL_TEXTURE_2D);
+
+		// texture 8: stone surface used by the visible collision boulders.
+		str = resourceDirectory + "/Texture/gray.png";
+		strcpy(filepath, str.c_str());
+		data = stbi_load(filepath, &width, &height, &channels, 4);
+		if (!data)
+		{
+			std::cerr << "Unable to load rock texture: " << str << std::endl;
+			exit(1);
+		}
+		glGenTextures(1, &rockTex);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, rockTex);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+		glGenerateMipmap(GL_TEXTURE_2D);
+		stbi_image_free(data);
+		data = nullptr;
 
 		// texture 5: the Charizard UV atlas that ships with the original model.
 		str = resourceDirectory + "/Texture/chariza.png";
@@ -898,6 +958,10 @@ public:
 		{
 			setStatus("Field boundary reached.");
 		}
+		else if (motionEvents.hitObstacle)
+		{
+			setStatus("A boulder blocks the path.");
+		}
 		if (captureRequested)
 		{
 			captureNearestPokemon();
@@ -1028,6 +1092,21 @@ public:
 		V = playerView;
 		glUniformMatrix4fv(pokemon2->getUniform("V"), 1, GL_FALSE, &V[0][0]);
 		applySceneLighting(pokemon2, V);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, rockTex);
+		for (const RockPlacement &rock : ROCK_PLACEMENTS)
+		{
+			const float groundHeight = terrainHeightMap.heightAt(rock.center.x, rock.center.y);
+			T = glm::translate(glm::mat4(1.0f),
+			                   glm::vec3(rock.center.x, groundHeight + rock.scale.y, rock.center.y));
+			R = glm::rotate(glm::mat4(1.0f), rock.yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+			S = glm::scale(glm::mat4(1.0f), rock.scale);
+			M = T * R * S;
+			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE, &M[0][0]);
+			shape->draw(pokemon2, false);
+		}
+
 		S = glm::scale(glm::mat4(1.0f), glm::vec3(0.34f, 0.34f, 0.34f));
 
 		glActiveTexture(GL_TEXTURE0);
