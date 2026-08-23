@@ -4,6 +4,7 @@ out vec4 color;
 in vec3 vertex_pos;
 in vec3 vertex_normal;
 in vec3 local_position;
+in vec2 vertex_tex;
 
 uniform vec3 sunDirection;
 uniform vec3 sunColor;
@@ -28,6 +29,7 @@ void main()
 	float buttonFace = (1.0 - smoothstep(0.125, 0.17, buttonRadius)) * front;
 	baseColor = mix(baseColor, vec3(0.018, 0.020, 0.025), buttonRim);
 	baseColor = mix(baseColor, vec3(0.82, 0.86, 0.90), buttonFace);
+	baseColor *= 0.995 + vertex_tex.y * 0.005;
 
 	vec3 normal = normalize(vertex_normal);
 	float diffuse = max(dot(normal, normalize(sunDirection)), 0.0);

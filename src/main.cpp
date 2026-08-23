@@ -1483,6 +1483,7 @@ GLuint rockTex, umbreonTex;
 		addSceneLightingUniforms(pokeballShader);
 		pokeballShader->addAttribute("vertPos");
 		pokeballShader->addAttribute("vertNor");
+		pokeballShader->addAttribute("vertTex");
 	}
 
 	/****DRAW
