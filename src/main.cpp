@@ -157,6 +157,16 @@ public:
 		return controller_.yaw();
 	}
 
+	glm::vec3 velocity() const
+	{
+		return controller_.velocity();
+	}
+
+	float turnRatio() const
+	{
+		return static_cast<float>(d - a);
+	}
+
 	const PlayerMotionEvents &motionEvents() const
 	{
 		return motionEvents_;
@@ -204,6 +214,7 @@ GLuint grayTex, rockTex, umbreonTex;
 	double nextTelemetryUpdate = 0.0;
 	glm::vec3 captureEffectPosition = glm::vec3(0.0f);
 	double captureEffectStarted = -100.0;
+	float playerAnimationPhase = 0.0f;
 
 	void updateWindowTitle()
 	{
@@ -264,6 +275,15 @@ GLuint grayTex, rockTex, umbreonTex;
 		glUniform1f(program->getUniform("fogEnd"), 62.0f);
 	}
 
+	void applyCharizardAnimation(const std::shared_ptr<Program> &program,
+	                            const PokemonAnimationPose &pose, bool enabled)
+	{
+		glUniform1f(program->getUniform("animationMode"), enabled ? 1.0f : 0.0f);
+		glUniform1f(program->getUniform("wingAngle"), pose.wingAngle);
+		glUniform1f(program->getUniform("tailAngle"), pose.tailAngle);
+		glUniform1f(program->getUniform("breathingScale"), pose.breathingScale);
+	}
+
 	void resetGame()
 	{
 		for (int i = 0; i < NUM_POKEMON; ++i)
@@ -284,6 +304,7 @@ GLuint grayTex, rockTex, umbreonTex;
 		currentTarget = PokemonTargetSelection();
 		nextTelemetryUpdate = 0.0;
 		captureEffectStarted = -100.0;
+		playerAnimationPhase = 0.0f;
 		setStatus("Explore the field and find a Pokemon.");
 	}
 
@@ -1055,6 +1076,10 @@ GLuint grayTex, rockTex, umbreonTex;
 		pokemon->addUniform("P");
 		pokemon->addUniform("V");
 		pokemon->addUniform("M");
+		pokemon->addUniform("animationMode");
+		pokemon->addUniform("wingAngle");
+		pokemon->addUniform("tailAngle");
+		pokemon->addUniform("breathingScale");
 		addSceneLightingUniforms(pokemon);
 		pokemon->addAttribute("vertPos");
 		pokemon->addAttribute("vertTex");
@@ -1072,6 +1097,10 @@ GLuint grayTex, rockTex, umbreonTex;
 		pokemon2->addUniform("V");
 		pokemon2->addUniform("M");
 		pokemon2->addUniform("surfaceDeform");
+		pokemon2->addUniform("animationMode");
+		pokemon2->addUniform("wingAngle");
+		pokemon2->addUniform("tailAngle");
+		pokemon2->addUniform("breathingScale");
 		addSceneLightingUniforms(pokemon2);
 		pokemon2->addAttribute("vertPos");
 		pokemon2->addAttribute("vertTex");
@@ -1137,6 +1166,22 @@ GLuint grayTex, rockTex, umbreonTex;
 			resetGame();
 		}
 		glm::mat4 playerView = mycam.process(frametime);
+		const glm::vec3 playerVelocity = mycam.velocity();
+		const float playerSpeedRatio = glm::clamp(
+			glm::length(glm::vec2(playerVelocity.x, playerVelocity.z)) / 7.0f,
+			0.0f, 1.0f);
+		playerAnimationPhase = advancePokemonAnimationPhase(
+			playerAnimationPhase, static_cast<float>(frametime), true, false,
+			playerSpeedRatio);
+		PokemonAnimationInput playerAnimationInput;
+		playerAnimationInput.flying = true;
+		playerAnimationInput.speedRatio = playerSpeedRatio;
+		playerAnimationInput.verticalSpeedRatio =
+			glm::clamp(playerVelocity.y / 9.0f, -1.0f, 1.0f);
+		playerAnimationInput.turnRatio = mycam.turnRatio();
+		playerAnimationInput.phase = playerAnimationPhase;
+		const PokemonAnimationPose playerPose =
+			samplePokemonAnimation(playerAnimationInput);
 		const PlayerMotionEvents &motionEvents = mycam.motionEvents();
 		if (motionEvents.hitCeiling)
 		{
@@ -1286,14 +1331,11 @@ GLuint grayTex, rockTex, umbreonTex;
 
 		pokemon->bind();
 		/*main character*/
-		const float playerBob = mycam.grounded()
-		                            ? 0.015f * std::sin(static_cast<float>(glfwGetTime()) * 3.2f)
-		                            : 0.04f * std::sin(static_cast<float>(glfwGetTime()) * 2.0f);
 		V = playerView;
 		applySceneLighting(pokemon, V);
 		S = glm::scale(glm::mat4(1.0f), glm::vec3(0.85f));
 		mat4 T = glm::translate(glm::mat4(1.0f),
-		                        mypos + glm::vec3(0.0f, 0.46f + playerBob, 0.0f));
+		                        mypos + glm::vec3(0.0f, 0.46f + playerPose.bodyBob, 0.0f));
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, fireTex);
@@ -1301,8 +1343,13 @@ GLuint grayTex, rockTex, umbreonTex;
 		glUniformMatrix4fv(pokemon->getUniform("V"), 1, GL_FALSE, &V[0][0]);
 		mat4 R = glm::rotate(glm::mat4(1.0f), mycam.yaw() + 3.1415926f,
 		                     glm::vec3(0.0f, 1.0f, 0.0f));
-		M = T * R * S;
+		mat4 PlayerPitch = glm::rotate(glm::mat4(1.0f), playerPose.bodyPitch,
+		                               glm::vec3(1.0f, 0.0f, 0.0f));
+		mat4 PlayerRoll = glm::rotate(glm::mat4(1.0f), playerPose.bodyRoll,
+		                              glm::vec3(0.0f, 0.0f, 1.0f));
+		M = T * R * PlayerPitch * PlayerRoll * S;
 		glUniformMatrix4fv(pokemon->getUniform("M"), 1, GL_FALSE, &M[0][0]);
+		applyCharizardAnimation(pokemon, playerPose, true);
 		charizard->draw(pokemon, false);
 		pokemon->unbind();
 		/***main character***/
@@ -1316,6 +1363,7 @@ GLuint grayTex, rockTex, umbreonTex;
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, rockTex);
 		glUniform1f(pokemon2->getUniform("surfaceDeform"), 0.18f);
+		applyCharizardAnimation(pokemon2, PokemonAnimationPose(), false);
 		for (const RockPlacement &rock : ROCK_PLACEMENTS)
 		{
 			const float groundHeight = terrainHeightMap.heightAt(rock.center.x, rock.center.y);
@@ -1333,7 +1381,6 @@ GLuint grayTex, rockTex, umbreonTex;
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, grayTex);
-		float motionTime = static_cast<float>(glfwGetTime());
 		// umbreon
 		for (int i = 0; i < NUM_POKEMON; i++)
 		{
@@ -1396,18 +1443,27 @@ GLuint grayTex, rockTex, umbreonTex;
 				continue;
 			}
 			const float flightSpeedRatio = charizards[i].getSpeedRatio();
+			PokemonAnimationInput flightAnimationInput;
+			flightAnimationInput.flying = true;
+			flightAnimationInput.fleeing =
+				charizards[i].getBehaviorState() == PokemonBehaviorState::Flee;
+			flightAnimationInput.speedRatio = flightSpeedRatio;
+			flightAnimationInput.verticalSpeedRatio =
+				glm::clamp(charizards[i].getVelocity().y / 4.8f, -1.0f, 1.0f);
+			flightAnimationInput.phase = charizards[i].getMotionPhase();
+			const PokemonAnimationPose flightPose =
+				samplePokemonAnimation(flightAnimationInput);
 			vec3 flightPosition = charizards[i].getPos();
-			flightPosition.y += (0.18f + 0.16f * flightSpeedRatio) *
-			                    std::sin(motionTime * (1.2f + flightSpeedRatio) +
-			                             charizards[i].getMotionPhase());
+			flightPosition.y += flightPose.bodyBob;
 			T = glm::translate(glm::mat4(1.0f), flightPosition);
 			R = glm::rotate(glm::mat4(1.0f), charizards[i].getHeading(), glm::vec3(0.0f, 1.0f, 0.0f));
-			mat4 Bank = glm::rotate(glm::mat4(1.0f),
-			                        0.10f * flightSpeedRatio *
-			                            std::sin(motionTime * 1.4f + charizards[i].getMotionPhase()),
-			                        glm::vec3(0.0f, 0.0f, 1.0f));
-			M = T * R * Bank * S;
+			mat4 FlightPitch = glm::rotate(glm::mat4(1.0f), flightPose.bodyPitch,
+			                               glm::vec3(1.0f, 0.0f, 0.0f));
+			mat4 FlightRoll = glm::rotate(glm::mat4(1.0f), flightPose.bodyRoll,
+			                              glm::vec3(0.0f, 0.0f, 1.0f));
+			M = T * R * FlightPitch * FlightRoll * S;
 			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE, &M[0][0]);
+			applyCharizardAnimation(pokemon2, flightPose, true);
 			charizard->draw(pokemon2, false);
 		}
 
