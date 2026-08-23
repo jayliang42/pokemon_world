@@ -23,6 +23,7 @@ Modified by: <Zhisong Liang>
 #include "Pokemon.cpp"
 #include "PlayerController.h"
 #include "TerrainHeightMap.h"
+#include "ThirdPersonCamera.h"
 
 #include "WindowManager.h"
 #include "Shape.h"
@@ -102,18 +103,19 @@ public:
 
 		mypos = controller_.position();
 		pos = -mypos;
-		glm::mat4 R = glm::rotate(glm::mat4(1.0f), controller_.yaw(), glm::vec3(0, 1, 0));
-		glm::mat4 T = glm::translate(glm::mat4(1), pos + glm::vec3(0, -5, 0));
-		return R * T;
+		cameraPose_ = cameraRig_.update(mypos, controller_.yaw(), static_cast<float>(ftime));
+		return glm::lookAt(cameraPose_.position, cameraPose_.target, glm::vec3(0.0f, 1.0f, 0.0f));
 	}
 
 	void reset()
 	{
 		w = a = s = d = q = e = space = 0;
 		controller_.reset();
+		cameraRig_.reset();
 		motionEvents_ = PlayerMotionEvents();
 		mypos = controller_.position();
 		pos = -mypos;
+		cameraPose_ = cameraRig_.update(mypos, controller_.yaw(), 0.0f);
 	}
 
 	bool toggleGravity()
@@ -135,13 +137,22 @@ public:
 	void setGroundHeightProvider(PlayerController::GroundHeightProvider provider)
 	{
 		controller_.setGroundHeightProvider(provider);
+		cameraRig_.setGroundHeightProvider(std::move(provider));
+		cameraRig_.reset();
 		mypos = controller_.position();
 		pos = -mypos;
+		cameraPose_ = cameraRig_.update(mypos, controller_.yaw(), 0.0f);
 	}
 
 	void setStaticObstacles(std::vector<StaticCollisionCylinder> obstacles)
 	{
+		cameraRig_.setStaticObstacles(obstacles);
 		controller_.setStaticObstacles(std::move(obstacles));
+	}
+
+	float yaw() const
+	{
+		return controller_.yaw();
 	}
 
 	const PlayerMotionEvents &motionEvents() const
@@ -151,6 +162,8 @@ public:
 
 private:
 	PlayerController controller_;
+	ThirdPersonCamera cameraRig_;
+	ThirdPersonCameraPose cameraPose_;
 	PlayerMotionEvents motionEvents_;
 };
 
@@ -1050,37 +1063,21 @@ public:
 
 		pokemon->bind();
 		/*main character*/
-		static float y = 0.0;
-		static int flag = 0;
-		if (flag == 0)
-		{
-			y += 0.001;
-			if (y > 0.05)
-			{
-				flag = 1;
-			}
-		}
-		else
-		{
-			y -= 0.001;
-			if (y < -0.05)
-			{
-				flag = 0;
-			}
-		}
-		V = mat4(1);
+		const float playerBob = mycam.grounded()
+		                            ? 0.015f * std::sin(static_cast<float>(glfwGetTime()) * 3.2f)
+		                            : 0.04f * std::sin(static_cast<float>(glfwGetTime()) * 2.0f);
+		V = playerView;
 		applySceneLighting(pokemon, V);
-		S = glm::scale(glm::mat4(1.0f), glm::vec3(0.24f, 0.24f, 0.24f));
-		// Keep the player model in a stable camera-space layer instead of
-		// placing it almost on the near clipping plane.
-		mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.55f + y, -2.6f));
+		S = glm::scale(glm::mat4(1.0f), glm::vec3(0.85f));
+		mat4 T = glm::translate(glm::mat4(1.0f),
+		                        mypos + glm::vec3(0.0f, 0.46f + playerBob, 0.0f));
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, fireTex);
 		glUniformMatrix4fv(pokemon->getUniform("P"), 1, GL_FALSE, &P[0][0]);
 		glUniformMatrix4fv(pokemon->getUniform("V"), 1, GL_FALSE, &V[0][0]);
-		// rotate x 180 degree
-		mat4 R = glm::rotate(glm::mat4(1.0f), 3.14f, glm::vec3(0.0f, 1.0f, 0.0f));
+		mat4 R = glm::rotate(glm::mat4(1.0f), mycam.yaw() + 3.1415926f,
+		                     glm::vec3(0.0f, 1.0f, 0.0f));
 		M = T * R * S;
 		glUniformMatrix4fv(pokemon->getUniform("M"), 1, GL_FALSE, &M[0][0]);
 		charizard->draw(pokemon, false);
