@@ -40,8 +40,8 @@ shared_ptr<Shape> umbreon;
 shared_ptr<Shape> charizard;
 std::vector<std::shared_ptr<Shape>> companionShapes;
 
-constexpr int NUM_POKEMON = 100;
-constexpr int FLYING_POKEMON = NUM_POKEMON / 5;
+constexpr int NUM_POKEMON = 48;
+constexpr int FLYING_POKEMON = 8;
 constexpr int STARTING_POKEBALLS = 10;
 constexpr int CAPTURE_GOAL = 5;
 
@@ -1115,26 +1115,33 @@ public:
 		// umbreon
 		for (int i = 0; i < NUM_POKEMON; i++)
 		{
-			// distance between pokemon and camera
-			float distance = sqrt(pow(mypos.x - umbreons[i].getPos().x, 2) + pow(mypos.z - umbreons[i].getPos().z, 2));
 			// if flag been caught, then don't draw, if too far, don't draw
 			if (umbreons[i].getCaught() == 1)
 			{
 				continue;
 			}
 
-			umbreons[i].update(frametime);
+			umbreons[i].update(frametime, mypos);
+			float distance = glm::length(glm::vec2(mypos.x - umbreons[i].getPos().x,
+			                                      mypos.z - umbreons[i].getPos().z));
 
 			if (distance > 50)
 			{
 				continue;
 			}
+			const float speedRatio = umbreons[i].getSpeedRatio();
+			const bool fleeing = umbreons[i].getBehaviorState() == PokemonBehaviorState::Flee;
+			const float stepFrequency = 1.8f + speedRatio * (fleeing ? 6.0f : 4.0f);
+			const float stepHeight = 0.008f + speedRatio * (fleeing ? 0.065f : 0.035f);
 			vec3 wildPosition = umbreons[i].getPos();
 			wildPosition.y = terrainHeightMap.heightAt(wildPosition.x, wildPosition.z) +
-			                 0.2f + 0.04f * std::sin(motionTime * 2.4f + umbreons[i].getMotionPhase());
+			                 0.2f + stepHeight * std::sin(motionTime * stepFrequency +
+			                                             umbreons[i].getMotionPhase());
 			T = glm::translate(glm::mat4(1.0f), wildPosition);
 			R = glm::rotate(glm::mat4(1.0f), umbreons[i].getHeading(), glm::vec3(0.0f, 1.0f, 0.0f));
-			M = T * R * S;
+			mat4 Lean = glm::rotate(glm::mat4(1.0f), -speedRatio * (fleeing ? 0.13f : 0.07f),
+			                        glm::vec3(1.0f, 0.0f, 0.0f));
+			M = T * R * Lean * S;
 			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE, &M[0][0]);
 			shared_ptr<Shape> wildShape = companionShapes.empty()
 				? umbreon
@@ -1148,21 +1155,29 @@ public:
 		glBindTexture(GL_TEXTURE_2D, fireTex);
 		for (int i = 0; i < FLYING_POKEMON; i++)
 		{
-			float distance = sqrt(pow(mypos.x - charizards[i].getPos().x, 2) + pow(mypos.z - charizards[i].getPos().z, 2));
 			if (charizards[i].getCaught() == 1)
 			{
 				continue;
 			}
-			charizards[i].update(frametime);
+			charizards[i].update(frametime, mypos);
+			float distance = glm::length(glm::vec2(mypos.x - charizards[i].getPos().x,
+			                                      mypos.z - charizards[i].getPos().z));
 			if (distance > 100)
 			{
 				continue;
 			}
+			const float flightSpeedRatio = charizards[i].getSpeedRatio();
 			vec3 flightPosition = charizards[i].getPos();
-			flightPosition.y += 0.45f * std::sin(motionTime * 1.8f + charizards[i].getMotionPhase());
+			flightPosition.y += (0.18f + 0.16f * flightSpeedRatio) *
+			                    std::sin(motionTime * (1.2f + flightSpeedRatio) +
+			                             charizards[i].getMotionPhase());
 			T = glm::translate(glm::mat4(1.0f), flightPosition);
 			R = glm::rotate(glm::mat4(1.0f), charizards[i].getHeading(), glm::vec3(0.0f, 1.0f, 0.0f));
-			M = T * R * S;
+			mat4 Bank = glm::rotate(glm::mat4(1.0f),
+			                        0.10f * flightSpeedRatio *
+			                            std::sin(motionTime * 1.4f + charizards[i].getMotionPhase()),
+			                        glm::vec3(0.0f, 0.0f, 1.0f));
+			M = T * R * Bank * S;
 			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE, &M[0][0]);
 			charizard->draw(pokemon2, false);
 		}
