@@ -186,6 +186,122 @@
       color: #58e096;
     }
 
+    .move-hud {
+      position: absolute;
+      right: 18px;
+      bottom: 18px;
+      width: min(500px, 52%);
+      padding: 9px;
+      border: 1px solid rgba(214, 235, 255, 0.28);
+      border-radius: 13px;
+      background: linear-gradient(145deg, rgba(9, 20, 37, 0.88), rgba(17, 36, 57, 0.72));
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
+      backdrop-filter: blur(7px);
+    }
+
+    .move-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 2px 7px;
+      color: #8ed8ff;
+      font-size: 0.6rem;
+      font-weight: 850;
+      letter-spacing: 0.11em;
+    }
+
+    #move-hint {
+      color: #8ea8c2;
+      font-weight: 650;
+      letter-spacing: 0.035em;
+    }
+
+    .move-slots {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 7px;
+    }
+
+    .move-slot {
+      position: relative;
+      min-width: 0;
+      min-height: 57px;
+      overflow: hidden;
+      padding: 7px 8px;
+      border: 1px solid rgba(194, 220, 247, 0.16);
+      border-radius: 9px;
+      background: rgba(3, 10, 20, 0.54);
+      color: #bac9d9;
+      transition: border-color 140ms ease-out, box-shadow 140ms ease-out,
+                  transform 140ms ease-out, opacity 140ms ease-out;
+    }
+
+    .move-slot.is-selected {
+      border-color: rgba(112, 211, 255, 0.78);
+      box-shadow: inset 0 0 0 1px rgba(112, 211, 255, 0.24),
+                  0 0 18px rgba(58, 175, 255, 0.18);
+      transform: translateY(-1px);
+    }
+
+    .move-hud.is-busy .move-slot:not(.is-selected) { opacity: 0.48; }
+
+    .move-cooldown-mask {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: 0;
+      background: rgba(2, 6, 12, 0.7);
+      transition: height 90ms linear;
+    }
+
+    .move-topline,
+    .move-bottomline {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 5px;
+    }
+
+    .move-key {
+      display: grid;
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid rgba(214, 235, 255, 0.27);
+      border-radius: 5px;
+      color: #f4f9ff;
+      background: rgba(255, 255, 255, 0.08);
+      font-size: 0.6rem;
+      font-weight: 850;
+    }
+
+    .move-name {
+      overflow: hidden;
+      color: #eff7ff;
+      font-size: 0.67rem;
+      font-weight: 780;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .move-bottomline {
+      margin-top: 7px;
+      color: #8199b2;
+      font-size: 0.53rem;
+      font-weight: 750;
+      letter-spacing: 0.06em;
+    }
+
+    .move-slot.type-fire .move-type { color: #ff9c67; }
+    .move-slot.type-flying .move-type { color: #8edcff; }
+    .move-slot.is-selected .move-state { color: #bceaff; }
+    .move-slot.is-cooling .move-state { color: #ffd074; }
+
     .hud-heading,
     .hud-values {
       display: flex;
@@ -312,6 +428,14 @@
       .mission-panel { top: 9px; left: 9px; width: min(195px, 47%); padding: 8px; }
       .mission-heading { font-size: 0.54rem; }
       .mission-row { grid-template-columns: 12px minmax(0, 1fr) auto; gap: 4px; min-height: 20px; font-size: 0.56rem; }
+      .move-hud { right: 9px; bottom: 9px; width: 45%; padding: 6px; }
+      .move-heading { padding-bottom: 5px; font-size: 0.5rem; }
+      #move-hint { display: none; }
+      .move-slots { grid-template-columns: 1fr; gap: 4px; }
+      .move-slot { min-height: 29px; padding: 4px 6px; }
+      .move-key { width: 15px; height: 15px; font-size: 0.5rem; }
+      .move-name { font-size: 0.57rem; }
+      .move-bottomline { margin-top: 2px; font-size: 0.46rem; }
     }
   </style>
 </head>
@@ -382,6 +506,47 @@
                    aria-valuenow="1"></div>
             </div>
           </section>
+          <section id="move-hud" class="move-hud" aria-label="Charizard moves">
+            <div class="move-heading">
+              <span>MOVE SET</span>
+              <span id="move-hint">1–3 SELECT · X USE</span>
+            </div>
+            <div class="move-slots">
+              <article id="move-slot-0" class="move-slot type-fire is-selected">
+                <div class="move-cooldown-mask"></div>
+                <div class="move-topline">
+                  <span class="move-key">1</span>
+                  <span class="move-name">Ember</span>
+                </div>
+                <div class="move-bottomline">
+                  <span class="move-type">FIRE · PWR 28</span>
+                  <span class="move-state">READY</span>
+                </div>
+              </article>
+              <article id="move-slot-1" class="move-slot type-flying">
+                <div class="move-cooldown-mask"></div>
+                <div class="move-topline">
+                  <span class="move-key">2</span>
+                  <span class="move-name">Air Slash</span>
+                </div>
+                <div class="move-bottomline">
+                  <span class="move-type">FLYING · PWR 34</span>
+                  <span class="move-state">READY</span>
+                </div>
+              </article>
+              <article id="move-slot-2" class="move-slot type-fire">
+                <div class="move-cooldown-mask"></div>
+                <div class="move-topline">
+                  <span class="move-key">3</span>
+                  <span class="move-name">Flamethrower</span>
+                </div>
+                <div class="move-bottomline">
+                  <span class="move-type">FIRE · PWR 42</span>
+                  <span class="move-state">READY</span>
+                </div>
+              </article>
+            </div>
+          </section>
         </div>
       </div>
       <div class="status-bar">
@@ -396,7 +561,8 @@
       <div class="control"><kbd>A</kbd><kbd>D</kbd> Turn left / right</div>
       <div class="control"><kbd>Q</kbd><kbd>Space</kbd> Climb · <kbd>E</kbd> Descend</div>
       <div class="control"><kbd>Z</kbd> Toggle gravity</div>
-      <div class="control"><kbd>X</kbd> Attack the locked target</div>
+      <div class="control"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Select a move</div>
+      <div class="control"><kbd>X</kbd> Use the selected move</div>
       <div class="control"><kbd>C</kbd> Catch the locked target</div>
       <div class="control"><kbd>R</kbd> New run (press twice) · <kbd>Esc</kbd> Quit</div>
     </section>
@@ -420,6 +586,13 @@
       document.getElementById('mission-land'),
       document.getElementById('mission-catch')
     ];
+    const moveHud = document.getElementById('move-hud');
+    const moveHint = document.getElementById('move-hint');
+    const moveSlots = [
+      document.getElementById('move-slot-0'),
+      document.getElementById('move-slot-1'),
+      document.getElementById('move-slot-2')
+    ];
 
     function updateHealthBar(fillElement, textElement, currentHealth, maximumHealth) {
       const safeMaximum = Math.max(1, Number(maximumHealth) || 1);
@@ -440,6 +613,30 @@
       row.classList.toggle('is-complete', complete);
       row.querySelector('.mission-marker').textContent = complete ? '✓' : '•';
       row.querySelector('.mission-value').textContent = `${current} / ${target}`;
+    }
+
+    function updateMoveSlot(slotIndex, moveName, moveType, movePower,
+                            remainingSeconds, cooldownFraction, selected, busy) {
+      const slot = moveSlots[slotIndex];
+      if (!slot) return;
+      const remaining = Math.max(0, Number(remainingSeconds) || 0);
+      const fraction = Math.max(0, Math.min(1, Number(cooldownFraction) || 0));
+      const power = Math.max(1, Number(movePower) || 1);
+      const typeName = Number(moveType) === 3 ? 'FLYING' : 'FIRE';
+      slot.classList.toggle('type-fire', typeName === 'FIRE');
+      slot.classList.toggle('type-flying', typeName === 'FLYING');
+      slot.classList.toggle('is-selected', selected);
+      slot.classList.toggle('is-cooling', remaining > 0.01);
+      slot.querySelector('.move-name').textContent = moveName || 'Move';
+      slot.querySelector('.move-type').textContent = `${typeName} · PWR ${power}`;
+      slot.querySelector('.move-state').textContent = remaining > 0.01
+        ? `${remaining.toFixed(1)}s`
+        : 'READY';
+      slot.querySelector('.move-cooldown-mask').style.height = `${fraction * 100}%`;
+      if (selected) slot.setAttribute('aria-current', 'true');
+      else slot.removeAttribute('aria-current');
+      moveHud.classList.toggle('is-busy', busy);
+      moveHint.textContent = busy ? 'ACTION IN PROGRESS' : '1–3 SELECT · X USE';
     }
 
     var Module = {
@@ -468,6 +665,11 @@
           targetName.textContent = enemyName || 'Wild Pokemon';
           updateHealthBar(targetHpFill, targetHpText, enemyHealth, enemyMaximum);
         }
+      },
+      onMoveSlot: function (slotIndex, moveName, moveType, movePower,
+                           remainingSeconds, cooldownFraction, selected, busy) {
+        updateMoveSlot(slotIndex, moveName, moveType, movePower,
+                       remainingSeconds, cooldownFraction, selected, busy);
       },
       onMissionProgress: function (superCurrent, superTarget,
                                    defeatCurrent, defeatTarget,

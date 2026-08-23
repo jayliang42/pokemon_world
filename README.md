@@ -135,7 +135,8 @@ with the asset.
 - `Q` or `Space`: climb
 - `E`: descend
 - `Z`: toggle gravity and return toward the field
-- `X`: attack the locked Pokemon; weakening it improves the capture chance
+- `1` / `2` / `3`: select Ember, Air Slash, or Flamethrower
+- `X`: use the selected move on the locked Pokemon
 - `C`: catch the nearest Pokemon in range
 - `R`: press twice within three seconds to start a new research run
 - `Esc`: quit
@@ -146,6 +147,11 @@ balls before reaching the goal ends the round. The browser HUD and native
 window title show health, progress, and the remaining inventory. Field Research
 also tracks a super-effective hit, a defeated wild Pokemon, a gravity-assisted
 landing, and the five required captures.
+
+Charizard has a three-move loadout. Ember recovers quickly, Air Slash adds
+Flying-type coverage, and Flamethrower trades the longest cooldown for the
+highest power. Cooldowns begin only when an attack actually starts, and each
+move recharges independently.
 
 Progress autosaves after battles, Poke Ball throws, capture results, and safe
 landings. The browser build restores its validated save from local storage on

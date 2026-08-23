@@ -1327,6 +1327,29 @@ GLuint rockTex, umbreonTex;
 		}, playerHealth, playerMaximum, targetName.c_str(), targetHealth,
 		   targetMaximum, targetVisible ? 1 : 0);
 
+		const auto &moves = playerBattleMoves();
+		const bool moveInputBusy =
+			battleSequenceActive || captureSequenceActive || gameFinished;
+		for (int slot = 0; slot < PLAYER_MOVE_SLOT_COUNT; ++slot)
+		{
+			const BattleMove &move = moves[static_cast<std::size_t>(slot)];
+			const double remaining =
+				playerMoveLoadout.cooldownRemaining(slot, now);
+			const float fraction =
+				playerMoveLoadout.cooldownFraction(slot, now);
+			EM_ASM({
+				if (Module.onMoveSlot)
+				{
+					Module.onMoveSlot(
+						$0, UTF8ToString($1), $2, $3, $4, $5,
+						$6 !== 0, $7 !== 0);
+				}
+			}, slot, move.name, static_cast<int>(move.type), move.power,
+			   remaining, fraction,
+			   slot == playerMoveLoadout.selectedSlot() ? 1 : 0,
+			   moveInputBusy ? 1 : 0);
+		}
+
 		const ResearchMissionSnapshot mission = makeResearchMissionSnapshot(
 			caughtCount, defeatedCount, researchProgress, CAPTURE_GOAL);
 		EM_ASM({
