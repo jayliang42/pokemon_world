@@ -1,5 +1,7 @@
 #include "Pokemon.h"
 
+#include "PokemonAnimation.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -114,6 +116,9 @@ void Pokemon::update(double deltaSeconds, const glm::vec3 &playerPosition)
 	age_ += step;
 	updateBehavior(step, playerPosition);
 	integrateMotion(step, desiredVelocity(playerPosition));
+	motionPhase_ = advancePokemonAnimationPhase(
+		motionPhase_, step, flying_, behaviorState_ == PokemonBehaviorState::Flee,
+		getSpeedRatio());
 }
 
 void Pokemon::setCaught(int flag)

@@ -1,4 +1,5 @@
 #include "Pokemon.h"
+#include "PokemonAnimation.h"
 
 #include <cmath>
 #include <iostream>
@@ -119,6 +120,54 @@ void testFlyingPokemonStaysWithinFlightBand()
 	expectTrue(std::fabs(flying.getPos().x) <= 46.0f && std::fabs(flying.getPos().z) <= 46.0f,
 	           "flying Pokemon remain inside the playable field");
 }
+
+void testAnimationPhaseFollowsLocomotion()
+{
+	const float idleGround = advancePokemonAnimationPhase(0.0f, 0.05f, false, false, 0.0f);
+	const float walkingGround = advancePokemonAnimationPhase(0.0f, 0.05f, false, false, 1.0f);
+	const float fleeingGround = advancePokemonAnimationPhase(0.0f, 0.05f, false, true, 1.0f);
+	expectTrue(idleGround > 0.0f, "idle animation keeps a slow breathing phase");
+	expectTrue(walkingGround > idleGround, "walking advances animation faster than idle");
+	expectTrue(fleeingGround > walkingGround, "fleeing advances animation faster than walking");
+
+	float wrapped = 6.27f;
+	wrapped = advancePokemonAnimationPhase(wrapped, 0.05f, true, true, 1.0f);
+	expectTrue(wrapped >= 0.0f && wrapped < 6.28319f,
+	           "animation phase wraps without growing indefinitely");
+}
+
+void testAnimationPoseReflectsMovementState()
+{
+	PokemonAnimationInput idleInput;
+	idleInput.phase = 1.5707963f;
+	const PokemonAnimationPose idle = samplePokemonAnimation(idleInput);
+	expectNear(idle.strideAngle, 0.0f, 0.0001f,
+	           "idle ground Pokemon do not cycle their legs");
+	expectTrue(idle.breathingScale > 1.0f, "idle ground Pokemon continue breathing");
+
+	PokemonAnimationInput walkingInput = idleInput;
+	walkingInput.speedRatio = 1.0f;
+	const PokemonAnimationPose walking = samplePokemonAnimation(walkingInput);
+	walkingInput.fleeing = true;
+	const PokemonAnimationPose fleeing = samplePokemonAnimation(walkingInput);
+	expectTrue(std::fabs(walking.strideAngle) > 0.4f,
+	           "walking produces a visible leg stride");
+	expectTrue(std::fabs(fleeing.strideAngle) > std::fabs(walking.strideAngle),
+	           "fleeing uses a stronger stride than walking");
+	expectTrue(fleeing.bodyBob > walking.bodyBob,
+	           "fleeing uses a stronger body lift than walking");
+
+	PokemonAnimationInput flyingInput;
+	flyingInput.flying = true;
+	flyingInput.speedRatio = 0.75f;
+	flyingInput.verticalSpeedRatio = 1.0f;
+	flyingInput.turnRatio = 1.0f;
+	flyingInput.phase = 1.5707963f;
+	const PokemonAnimationPose flying = samplePokemonAnimation(flyingInput);
+	expectTrue(flying.wingAngle > 0.4f, "flying Pokemon receive a wing flap pose");
+	expectTrue(flying.bodyPitch > 0.0f, "climbing pitches a flying Pokemon upward");
+	expectTrue(flying.bodyRoll < 0.0f, "turning banks a flying Pokemon into the turn");
+}
 }
 
 int main()
@@ -128,6 +177,8 @@ int main()
 	testFleeStateReturnsToWanderAfterReachingSafety();
 	testLargeFrameIsClampedAndCaughtPokemonStops();
 	testFlyingPokemonStaysWithinFlightBand();
+	testAnimationPhaseFollowsLocomotion();
+	testAnimationPoseReflectsMovementState();
 
 	if (failures != 0)
 	{
