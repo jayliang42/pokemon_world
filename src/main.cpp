@@ -41,7 +41,6 @@ shared_ptr<Shape> shape;
 shared_ptr<Shape> umbreon;
 shared_ptr<Shape> bulbasaur;
 shared_ptr<Shape> charizard;
-std::vector<std::shared_ptr<Shape>> companionShapes;
 
 constexpr int NUM_POKEMON = 48;
 constexpr int FLYING_POKEMON = 8;
@@ -202,7 +201,7 @@ public:
 
 	// texture data
 GLuint Texture, grassTexture, HeightTex, PokeballTex, fireTex, Texture5;
-GLuint grayTex, rockTex, umbreonTex;
+GLuint rockTex, umbreonTex;
 	GLuint bulbasaurBodyTex = 0;
 	GLuint bulbasaurSpotTex = 0;
 	GLuint bulbasaurBulbTex = 0;
@@ -905,17 +904,6 @@ GLuint grayTex, rockTex, umbreonTex;
 		charizard->resize();
 		charizard->init();
 
-		const char *companionNames[] = {"animal-bunny", "animal-cat", "animal-chick", "animal-parrot"};
-		string companionDirectory = resourceDirectory + "/pokemon/companions/";
-		for (const char *companionName : companionNames)
-		{
-			shared_ptr<Shape> companion = make_shared<Shape>();
-			companion->loadMesh(companionDirectory + companionName + ".obj",
-			                    &companionDirectory, stbi_load);
-			companion->resize();
-			companion->init();
-			companionShapes.push_back(companion);
-		}
 
 		int width, height, channels;
 		char filepath[1000];
@@ -1041,20 +1029,6 @@ GLuint grayTex, rockTex, umbreonTex;
 		glGenTextures(1, &Texture5);
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, Texture5);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-		glGenerateMipmap(GL_TEXTURE_2D);
-
-		// texture 7
-		str = resourceDirectory + "/Texture/clouds.jpg";
-		strcpy(filepath, str.c_str());
-		data = stbi_load(filepath, &width, &height, &channels, 4);
-		glGenTextures(1, &grayTex);
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, grayTex);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
