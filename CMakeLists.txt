@@ -42,6 +42,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       "${CMAKE_SOURCE_DIR}/src"
       "${CMAKE_SOURCE_DIR}/ext/glm/include")
   add_test(NAME third_person_camera_collision COMMAND third_person_camera_tests)
+
+  add_executable(pokemon_behavior_tests
+      tests/pokemon_behavior_test.cpp
+      src/Pokemon.cpp)
+  target_include_directories(pokemon_behavior_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME pokemon_behavior_states COMMAND pokemon_behavior_tests)
 endif()
 
 # We don't really need to include header and resource files to build, but it's
