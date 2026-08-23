@@ -11,7 +11,6 @@ Modified by: <Zhisong Liang>
 #include <ctime>
 #include <fstream>
 #include <iomanip>
-#include <limits>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -178,7 +177,7 @@ public:
 	WindowManager *windowManager = nullptr;
 
 	// Our shader program
-	std::shared_ptr<Program> prog, prog2, heightshader, pokemon, pokemon2;
+	std::shared_ptr<Program> prog, prog2, heightshader, pokemon, pokemon2, targetshader;
 
 	// Contains vertex information for OpenGL
 	GLuint VertexArrayID, VertexArrayID2;
@@ -202,6 +201,8 @@ public:
 	std::string statusMessage = "Explore the field and find a Pokemon.";
 	PokemonTargetSelection currentTarget;
 	double nextTelemetryUpdate = 0.0;
+	glm::vec3 captureEffectPosition = glm::vec3(0.0f);
+	double captureEffectStarted = -100.0;
 
 	void updateWindowTitle()
 	{
@@ -281,6 +282,7 @@ public:
 		gameFinished = false;
 		currentTarget = PokemonTargetSelection();
 		nextTelemetryUpdate = 0.0;
+		captureEffectStarted = -100.0;
 		setStatus("Explore the field and find a Pokemon.");
 	}
 
@@ -407,6 +409,8 @@ public:
 			return;
 		}
 
+		captureEffectPosition = pokemonWorldPosition(*target);
+		captureEffectStarted = glfwGetTime();
 		target->setCaught(1);
 		--pokeballs;
 		++caughtCount;
@@ -1001,6 +1005,24 @@ public:
 		pokemon2->addAttribute("vertPos");
 		pokemon2->addAttribute("vertTex");
 		pokemon2->addAttribute("vertNor");
+
+		targetshader = std::make_shared<Program>();
+		targetshader->setVerbose(true);
+		targetshader->setShaderNames(resourceDirectory + "/target_vertex.glsl",
+		                             resourceDirectory + "/target_frag.glsl");
+		if (!targetshader->init())
+		{
+			std::cerr << "Target indicator shaders failed to compile... exiting!" << std::endl;
+			exit(1);
+		}
+		targetshader->addUniform("P");
+		targetshader->addUniform("V");
+		targetshader->addUniform("M");
+		targetshader->addUniform("time");
+		targetshader->addUniform("ringColor");
+		targetshader->addUniform("opacity");
+		targetshader->addAttribute("vertPos");
+		targetshader->addAttribute("vertTex");
 	}
 
 	/****DRAW
@@ -1123,6 +1145,47 @@ public:
 		glDrawElements(GL_TRIANGLES, MESHSIZE * MESHSIZE * 6, GL_UNSIGNED_SHORT, (void *)0);
 
 		heightshader->unbind();
+
+		targetshader->bind();
+		V = playerView;
+		glUniformMatrix4fv(targetshader->getUniform("P"), 1, GL_FALSE, &P[0][0]);
+		glUniformMatrix4fv(targetshader->getUniform("V"), 1, GL_FALSE, &V[0][0]);
+		const float indicatorTime = static_cast<float>(glfwGetTime());
+		glUniform1f(targetshader->getUniform("time"), indicatorTime);
+		glBindVertexArray(VertexArrayID2);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferIDBox2);
+		glDepthMask(GL_FALSE);
+		auto drawTargetRing = [&](const glm::vec3 &position, float diameter,
+		                          const glm::vec3 &ringColor, float opacity) {
+			glm::mat4 ringTranslation = glm::translate(glm::mat4(1.0f), position);
+			glm::mat4 ringRotation = glm::rotate(glm::mat4(1.0f), -1.5707963f,
+			                                         glm::vec3(1.0f, 0.0f, 0.0f));
+			glm::mat4 ringScale = glm::scale(glm::mat4(1.0f), glm::vec3(diameter));
+			glm::mat4 ringModel = ringTranslation * ringRotation * ringScale;
+			glUniformMatrix4fv(targetshader->getUniform("M"), 1, GL_FALSE, &ringModel[0][0]);
+			glUniform3fv(targetshader->getUniform("ringColor"), 1, &ringColor[0]);
+			glUniform1f(targetshader->getUniform("opacity"), opacity);
+			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, (void *)0);
+		};
+		Pokemon *lockedPokemon = targetedPokemon();
+		if (lockedPokemon && lockedPokemon->getCaught() == 0)
+		{
+			glm::vec3 targetPosition = pokemonWorldPosition(*lockedPokemon);
+			targetPosition.y += currentTarget.flying ? -0.65f : 0.08f;
+			const float targetDiameter = currentTarget.flying ? 3.2f : 2.35f;
+			drawTargetRing(targetPosition, targetDiameter,
+			               glm::vec3(0.18f, 0.82f, 1.0f), 0.88f);
+		}
+		const float captureEffectAge = indicatorTime - static_cast<float>(captureEffectStarted);
+		if (captureEffectAge >= 0.0f && captureEffectAge < 0.9f)
+		{
+			glm::vec3 effectPosition = captureEffectPosition + glm::vec3(0.0f, 0.12f, 0.0f);
+			const float effectProgress = captureEffectAge / 0.9f;
+			drawTargetRing(effectPosition, 2.0f + effectProgress * 4.2f,
+			               glm::vec3(1.0f, 0.76f, 0.18f), 1.0f - effectProgress);
+		}
+		glDepthMask(GL_TRUE);
+		targetshader->unbind();
 
 		prog2->bind();
 		V = mat4(1);

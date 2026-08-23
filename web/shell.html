@@ -78,7 +78,14 @@
 
     #game-status {
       color: #c9e6ff;
+      flex: 1;
+      text-align: center;
+    }
+
+    #telemetry {
+      color: #8fd7ff;
       text-align: right;
+      white-space: nowrap;
     }
 
     .controls {
@@ -115,7 +122,7 @@
       .controls { grid-template-columns: 1fr; }
       #canvas { min-height: 220px; }
       .status-bar { align-items: flex-start; flex-direction: column; gap: 4px; }
-      #game-status { text-align: left; }
+      #game-status, #telemetry { text-align: left; }
     }
   </style>
 </head>
@@ -133,7 +140,8 @@
       <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
       <div class="status-bar">
         <span id="status">Loading the field...</span>
-        <span id="game-status" aria-live="polite">Hover mode · Grounded</span>
+        <span id="game-status" aria-live="polite">Explore the field.</span>
+        <span id="telemetry">No target · Hover · Grounded</span>
       </div>
     </section>
 
@@ -142,7 +150,7 @@
       <div class="control"><kbd>A</kbd><kbd>D</kbd> Turn left / right</div>
       <div class="control"><kbd>Q</kbd><kbd>Space</kbd> Climb · <kbd>E</kbd> Descend</div>
       <div class="control"><kbd>Z</kbd> Toggle gravity</div>
-      <div class="control"><kbd>C</kbd> Catch the nearest Pokemon</div>
+      <div class="control"><kbd>C</kbd> Catch the locked target</div>
       <div class="control"><kbd>R</kbd> Restart · <kbd>Esc</kbd> Quit</div>
     </section>
   </main>
@@ -150,6 +158,7 @@
   <script>
     const statusElement = document.getElementById('status');
     const gameStatusElement = document.getElementById('game-status');
+    const telemetryElement = document.getElementById('telemetry');
     var Module = {
       canvas: document.getElementById('canvas'),
       locateFile: function (path) {
@@ -160,6 +169,9 @@
       },
       onGameStatus: function (text) {
         gameStatusElement.textContent = text || 'Explore the field.';
+      },
+      onGameTelemetry: function (text) {
+        telemetryElement.textContent = text || 'No target · Hover · Grounded';
       },
       print: function (text) {
         console.log(text);
