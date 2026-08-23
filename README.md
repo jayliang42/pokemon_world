@@ -153,6 +153,11 @@ Flying-type coverage, and Flamethrower trades the longest cooldown for the
 highest power. Cooldowns begin only when an attack actually starts, and each
 move recharges independently.
 
+The browser build synthesizes lightweight battle, capture, and landing sound
+effects with Web Audio after the first player interaction. No commercial game
+audio is bundled, and the sound toggle in the page header can mute feedback at
+any time.
+
 Progress autosaves after battles, Poke Ball throws, capture results, and safe
 landings. The browser build restores its validated save from local storage on
 the same browser and device; the native build uses `pokemon_world.save` in its

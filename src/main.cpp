@@ -463,6 +463,21 @@ GLuint rockTex, umbreonTex;
 #endif
 	}
 
+	void emitGameCue(const char *cue, PokemonType type = PokemonType::Normal)
+	{
+#ifdef __EMSCRIPTEN__
+		EM_ASM({
+			if (Module.onGameCue)
+			{
+				Module.onGameCue(UTF8ToString($0), $1);
+			}
+		}, cue, static_cast<int>(type));
+#else
+		(void)cue;
+		(void)type;
+#endif
+	}
+
 	GameSaveLimits gameSaveLimits() const
 	{
 		GameSaveLimits limits;
@@ -902,10 +917,12 @@ GLuint rockTex, umbreonTex;
 			lastCapturePhase = sample.phase;
 			if (sample.phase == CapturePhase::Absorbing)
 			{
+				emitGameCue("capture-hit");
 				setStatus("Hit! " + pendingCaptureSpecies + " was pulled into the Poke Ball.");
 			}
 			else if (sample.phase == CapturePhase::Succeeded)
 			{
+				emitGameCue("capture-success");
 				captureEffectPosition = captureBallRestPosition;
 				captureEffectStarted = now;
 				captureEffectSucceeded = true;
@@ -913,6 +930,7 @@ GLuint rockTex, umbreonTex;
 			}
 			else if (sample.phase == CapturePhase::BrokeFree)
 			{
+				emitGameCue("capture-fail");
 				captureEffectPosition = captureBallRestPosition;
 				captureEffectStarted = now;
 				captureEffectSucceeded = false;
@@ -927,6 +945,7 @@ GLuint rockTex, umbreonTex;
 		    sample.shakeIndex != lastCaptureShake)
 		{
 			lastCaptureShake = sample.shakeIndex;
+			emitGameCue("capture-shake");
 			setStatus("Shake " + std::to_string(sample.shakeIndex) + "...");
 		}
 		if (sample.finished)
@@ -983,6 +1002,7 @@ GLuint rockTex, umbreonTex;
 			{
 				const int appliedDamage =
 					pendingBattleTarget->applyDamage(pendingPlayerDamage.amount);
+				emitGameCue("target-impact", pendingPlayerMove.type);
 				if (pendingPlayerDamage.effectiveness > 1.01f)
 				{
 					recordSuperEffectiveHit(researchProgress);
@@ -1011,6 +1031,7 @@ GLuint rockTex, umbreonTex;
 			playerDamageApplied = true;
 			const int appliedDamage = std::min(playerHealth, pendingWildDamage.amount);
 			playerHealth = std::max(0, playerHealth - appliedDamage);
+			emitGameCue("player-impact", pendingWildMove.type);
 			std::ostringstream message;
 			message << pendingBattleSpecies << " dealt " << appliedDamage
 			        << " damage with " << pendingWildMove.name << " (Charizard "
@@ -1026,12 +1047,18 @@ GLuint rockTex, umbreonTex;
 			lastBattlePhase = sample.phase;
 			if (sample.phase == BattlePhase::PlayerProjectile)
 			{
+				emitGameCue("player-attack", pendingPlayerMove.type);
 				setStatus(std::string("Charizard used ") + pendingPlayerMove.name + "!");
 			}
 			else if (sample.phase == BattlePhase::WildWindup &&
 			         pendingBattlePlan.counterEnabled)
 			{
 				setStatus(pendingBattleSpecies + " prepares " + pendingWildMove.name + "!");
+			}
+			else if (sample.phase == BattlePhase::WildProjectile &&
+			         pendingBattlePlan.counterEnabled)
+			{
+				emitGameCue("wild-attack", pendingWildMove.type);
 			}
 		}
 		if (sample.finished)
@@ -1061,6 +1088,7 @@ GLuint rockTex, umbreonTex;
 			message << "Ready to use.";
 		}
 		setStatus(message.str());
+		emitGameCue("move-select", move.type);
 	}
 
 	void attackTargetedPokemon()
@@ -1439,6 +1467,7 @@ GLuint rockTex, umbreonTex;
 		        << static_cast<int>(std::round(pendingCaptureResult.probability * 100.0f))
 		        << "% capture chance.";
 		setStatus(message.str());
+		emitGameCue("capture-throw");
 		saveGameProgress();
 	}
 
@@ -2295,6 +2324,7 @@ GLuint rockTex, umbreonTex;
 		else if (motionEvents.landed)
 		{
 			recordSafeLanding(researchProgress);
+			emitGameCue("land");
 			setStatus("Landed safely.");
 			saveGameProgress();
 		}
