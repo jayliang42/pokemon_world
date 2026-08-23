@@ -7,6 +7,7 @@ Modified by: <Zhisong Liang>
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
@@ -18,6 +19,8 @@ Modified by: <Zhisong Liang>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "GLSL.h"
+#include "CaptureMechanics.h"
+#include "CaptureSequence.h"
 #include "Program.h"
 #include "MatrixStack.h"
 #include "Pokemon.h"
@@ -221,6 +224,18 @@ GLuint rockTex, umbreonTex;
 	double nextTelemetryUpdate = 0.0;
 	glm::vec3 captureEffectPosition = glm::vec3(0.0f);
 	double captureEffectStarted = -100.0;
+	bool captureEffectSucceeded = true;
+	CaptureRandom captureRandom{static_cast<std::uint32_t>(std::time(nullptr))};
+	bool captureSequenceActive = false;
+	CaptureResult pendingCaptureResult;
+	Pokemon *pendingCaptureTarget = nullptr;
+	double captureSequenceStarted = -100.0;
+	CapturePhase lastCapturePhase = CapturePhase::Inactive;
+	int lastCaptureShake = 0;
+	std::string pendingCaptureSpecies;
+	glm::vec3 captureThrowStart = glm::vec3(0.0f);
+	glm::vec3 captureHitPosition = glm::vec3(0.0f);
+	glm::vec3 captureBallRestPosition = glm::vec3(0.0f);
 	float playerAnimationPhase = 0.0f;
 
 	void updateWindowTitle()
@@ -328,6 +343,13 @@ GLuint rockTex, umbreonTex;
 		currentTarget = PokemonTargetSelection();
 		nextTelemetryUpdate = 0.0;
 		captureEffectStarted = -100.0;
+		captureEffectSucceeded = true;
+		captureSequenceActive = false;
+		pendingCaptureTarget = nullptr;
+		captureSequenceStarted = -100.0;
+		lastCapturePhase = CapturePhase::Inactive;
+		lastCaptureShake = 0;
+		pendingCaptureSpecies.clear();
 		playerAnimationPhase = 0.0f;
 		setStatus("Explore the field and find a Pokemon.");
 	}
@@ -342,24 +364,171 @@ GLuint rockTex, umbreonTex;
 		return position;
 	}
 
-	void updatePokemonAgents(double deltaSeconds)
+	CaptureActivity captureActivityFor(const Pokemon &candidate) const
+	{
+		switch (candidate.getBehaviorState())
+		{
+		case PokemonBehaviorState::Idle:
+			return CaptureActivity::Idle;
+		case PokemonBehaviorState::Flee:
+			return CaptureActivity::Fleeing;
+		case PokemonBehaviorState::Wander:
+			return CaptureActivity::Moving;
+		}
+		return CaptureActivity::Moving;
+	}
+
+	CaptureSequenceSample currentCaptureSample(double now) const
+	{
+		return captureSequenceActive
+		           ? sampleCaptureSequence(
+			             pendingCaptureResult,
+			             static_cast<float>(now - captureSequenceStarted))
+		           : CaptureSequenceSample();
+	}
+
+	bool isPendingCaptureTarget(const Pokemon &candidate) const
+	{
+		return captureSequenceActive && pendingCaptureTarget == &candidate;
+	}
+
+	void finishCaptureSequence()
+	{
+		Pokemon *target = pendingCaptureTarget;
+		const bool captured = pendingCaptureResult.captured && target;
+		captureSequenceActive = false;
+		pendingCaptureTarget = nullptr;
+		lastCapturePhase = CapturePhase::Finished;
+
+		if (captured)
+		{
+			target->setCaught(1);
+			++caughtCount;
+			if (caughtCount >= CAPTURE_GOAL)
+			{
+				gameFinished = true;
+				setStatus("Research complete! Press R to play again.");
+			}
+			else if (pokeballs == 0)
+			{
+				gameFinished = true;
+				setStatus("Out of Poke Balls before the goal. Press R to retry.");
+			}
+			else
+			{
+				std::ostringstream message;
+				message << "Captured " << pendingCaptureSpecies << "! "
+				        << caughtCount << "/" << CAPTURE_GOAL
+				        << " research samples complete.";
+				setStatus(message.str());
+			}
+		}
+		else
+		{
+			if (target)
+			{
+				target->startle();
+			}
+			std::ostringstream message;
+			message << pendingCaptureSpecies << " broke free";
+			if (pendingCaptureResult.shakes > 0)
+			{
+				message << " after " << pendingCaptureResult.shakes
+				        << (pendingCaptureResult.shakes == 1 ? " shake" : " shakes");
+			}
+			message << ". ";
+			if (pokeballs == 0)
+			{
+				gameFinished = true;
+				message << "Out of Poke Balls. Press R to retry.";
+			}
+			else
+			{
+				message << pokeballs << " Poke Balls left.";
+			}
+			setStatus(message.str());
+		}
+	}
+
+	void updateCaptureSequence(double now)
+	{
+		if (!captureSequenceActive)
+		{
+			return;
+		}
+		const CaptureSequenceSample sample = currentCaptureSample(now);
+		if (sample.phase != lastCapturePhase)
+		{
+			lastCapturePhase = sample.phase;
+			if (sample.phase == CapturePhase::Absorbing)
+			{
+				setStatus("Hit! " + pendingCaptureSpecies + " was pulled into the Poke Ball.");
+			}
+			else if (sample.phase == CapturePhase::Succeeded)
+			{
+				captureEffectPosition = captureBallRestPosition;
+				captureEffectStarted = now;
+				captureEffectSucceeded = true;
+				setStatus("Click! " + pendingCaptureSpecies + " was caught.");
+			}
+			else if (sample.phase == CapturePhase::BrokeFree)
+			{
+				captureEffectPosition = captureBallRestPosition;
+				captureEffectStarted = now;
+				captureEffectSucceeded = false;
+				if (pendingCaptureTarget)
+				{
+					pendingCaptureTarget->startle();
+				}
+				setStatus(pendingCaptureSpecies + " broke free!");
+			}
+		}
+		if (sample.phase == CapturePhase::Shaking &&
+		    sample.shakeIndex != lastCaptureShake)
+		{
+			lastCaptureShake = sample.shakeIndex;
+			setStatus("Shake " + std::to_string(sample.shakeIndex) + "...");
+		}
+		if (sample.finished)
+		{
+			finishCaptureSequence();
+		}
+	}
+
+	void updatePokemonAgents(double deltaSeconds, double now)
 	{
 		if (gameFinished)
 		{
 			return;
 		}
+		const CaptureSequenceSample captureSample = currentCaptureSample(now);
 		for (int i = 0; i < NUM_POKEMON; ++i)
 		{
+			if (isPendingCaptureTarget(umbreons[i]) &&
+			    captureSample.phase != CapturePhase::BrokeFree)
+			{
+				continue;
+			}
 			umbreons[i].update(deltaSeconds, mypos);
 		}
 		for (int i = 0; i < FLYING_POKEMON; ++i)
 		{
+			if (isPendingCaptureTarget(charizards[i]) &&
+			    captureSample.phase != CapturePhase::BrokeFree)
+			{
+				continue;
+			}
 			charizards[i].update(deltaSeconds, mypos);
 		}
 	}
 
 	void refreshTarget()
 	{
+		if (captureSequenceActive)
+		{
+			currentTarget = PokemonTargetSelection();
+			return;
+		}
 		std::vector<PokemonTargetCandidate> candidates;
 		candidates.reserve(NUM_POKEMON + FLYING_POKEMON);
 		for (int i = 0; i < NUM_POKEMON; ++i)
@@ -405,8 +574,34 @@ GLuint rockTex, umbreonTex;
 		}
 		nextTelemetryUpdate = now + 0.12;
 		std::ostringstream telemetry;
-		Pokemon *target = targetedPokemon();
-		if (currentTarget.valid() && target)
+		if (captureSequenceActive)
+		{
+			const CaptureSequenceSample sample = currentCaptureSample(now);
+			telemetry << pendingCaptureSpecies << " · ";
+			switch (sample.phase)
+			{
+			case CapturePhase::Throwing:
+				telemetry << "Ball airborne";
+				break;
+			case CapturePhase::Absorbing:
+				telemetry << "Hit";
+				break;
+			case CapturePhase::Shaking:
+				telemetry << "Shake " << sample.shakeIndex;
+				break;
+			case CapturePhase::Succeeded:
+				telemetry << "Captured";
+				break;
+			case CapturePhase::BrokeFree:
+				telemetry << "Broke free";
+				break;
+			case CapturePhase::Inactive:
+			case CapturePhase::Finished:
+				telemetry << "Resolving";
+				break;
+			}
+		}
+		else if (Pokemon *target = targetedPokemon())
 		{
 			telemetry << pokemonSpeciesName(target->getSpecies()) << " "
 			          << std::fixed << std::setprecision(1)
@@ -430,6 +625,11 @@ GLuint rockTex, umbreonTex;
 
 	void captureNearestPokemon()
 	{
+		if (captureSequenceActive)
+		{
+			setStatus("A capture attempt is already in progress.");
+			return;
+		}
 		if (gameFinished)
 		{
 			return;
@@ -458,29 +658,36 @@ GLuint rockTex, umbreonTex;
 			return;
 		}
 
-		captureEffectPosition = pokemonWorldPosition(*target);
-		captureEffectStarted = glfwGetTime();
-		target->setCaught(1);
+		CaptureAttempt attempt;
+		attempt.species = target->getSpecies();
+		attempt.distance = currentTarget.distance;
+		attempt.maximumDistance = captureRange;
+		attempt.alignment = currentTarget.alignment;
+		attempt.activity = captureActivityFor(*target);
+		pendingCaptureResult = resolveCaptureAttempt(attempt, captureRandom.nextUnit());
+		pendingCaptureTarget = target;
+		pendingCaptureSpecies = speciesName;
+		captureSequenceActive = true;
+		captureSequenceStarted = glfwGetTime();
+		lastCapturePhase = CapturePhase::Throwing;
+		lastCaptureShake = 0;
+		const glm::vec3 throwForward(-std::sin(mycam.yaw()), 0.0f,
+		                             -std::cos(mycam.yaw()));
+		captureThrowStart = mypos + glm::vec3(0.0f, 0.9f, 0.0f) +
+		                    throwForward * 0.55f;
+		captureHitPosition = pokemonWorldPosition(*target);
+		captureHitPosition.y += target->isFlying() ? 0.0f : 0.45f;
+		captureBallRestPosition = glm::vec3(
+			captureHitPosition.x,
+			terrainHeightMap.heightAt(captureHitPosition.x, captureHitPosition.z) + 0.16f,
+			captureHitPosition.z);
 		--pokeballs;
-		++caughtCount;
-		if (caughtCount >= CAPTURE_GOAL)
-		{
-			gameFinished = true;
-			setStatus("Research complete! Press R to play again.");
-		}
-		else if (pokeballs == 0)
-		{
-			gameFinished = true;
-			setStatus("Out of Poke Balls before the goal. Press R to retry.");
-		}
-		else
-		{
-			std::ostringstream message;
-			message << "Captured " << speciesName << "! " << caughtCount << "/" << CAPTURE_GOAL
-			        << " research samples complete.";
-			setStatus(message.str());
-		}
-		refreshTarget();
+		currentTarget = PokemonTargetSelection();
+		std::ostringstream message;
+		message << "Poke Ball away at " << speciesName << " - "
+		        << static_cast<int>(std::round(pendingCaptureResult.probability * 100.0f))
+		        << "% capture chance.";
+		setStatus(message.str());
 	}
 
 	glm::vec3 articulatedPartPivot(const Shape::PartInfo &part) const
@@ -1281,7 +1488,9 @@ GLuint rockTex, umbreonTex;
 		{
 			setStatus("A boulder blocks the path.");
 		}
-		updatePokemonAgents(frametime);
+		const double captureNow = glfwGetTime();
+		updateCaptureSequence(captureNow);
+		updatePokemonAgents(frametime, captureNow);
 		refreshTarget();
 		updateWebTelemetry();
 		if (captureRequested)
@@ -1289,6 +1498,9 @@ GLuint rockTex, umbreonTex;
 			captureNearestPokemon();
 			captureRequested = false;
 		}
+		const double captureRenderNow = glfwGetTime();
+		const CaptureSequenceSample captureVisualSample =
+			currentCaptureSample(captureRenderNow);
 
 		// Keep the sky centered on the camera and let only its orientation follow
 		// the player's view. Cloud motion is handled slowly in the sky shader.
@@ -1348,7 +1560,7 @@ GLuint rockTex, umbreonTex;
 		V = playerView;
 		glUniformMatrix4fv(targetshader->getUniform("P"), 1, GL_FALSE, &P[0][0]);
 		glUniformMatrix4fv(targetshader->getUniform("V"), 1, GL_FALSE, &V[0][0]);
-		const float indicatorTime = static_cast<float>(glfwGetTime());
+		const float indicatorTime = static_cast<float>(captureRenderNow);
 		glUniform1f(targetshader->getUniform("time"), indicatorTime);
 		glBindVertexArray(VertexArrayID2);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferIDBox2);
@@ -1374,13 +1586,54 @@ GLuint rockTex, umbreonTex;
 			drawTargetRing(targetPosition, targetDiameter,
 			               glm::vec3(0.18f, 0.82f, 1.0f), 0.88f);
 		}
+		if (captureSequenceActive && captureVisualSample.ballVisible)
+		{
+			glm::vec3 ballIndicatorPosition = captureBallRestPosition;
+			glm::vec3 ballIndicatorColor(1.0f, 0.68f, 0.16f);
+			float ballIndicatorDiameter = 0.58f;
+			if (captureVisualSample.phase == CapturePhase::Throwing)
+			{
+				const float progress = captureVisualSample.phaseProgress;
+				const float smoothProgress = progress * progress * (3.0f - 2.0f * progress);
+				ballIndicatorPosition = glm::mix(captureThrowStart, captureHitPosition,
+				                                 smoothProgress);
+				ballIndicatorPosition.y += std::sin(progress * 3.1415926f) * 1.25f;
+				ballIndicatorColor = glm::vec3(1.0f, 0.34f, 0.22f);
+				ballIndicatorDiameter = 0.46f;
+			}
+			else if (captureVisualSample.phase == CapturePhase::Absorbing)
+			{
+				ballIndicatorPosition = glm::mix(
+					captureHitPosition, captureBallRestPosition,
+					captureVisualSample.phaseProgress);
+				ballIndicatorColor = glm::vec3(0.22f, 0.86f, 1.0f);
+				ballIndicatorDiameter =
+					0.58f + std::sin(captureVisualSample.phaseProgress * 3.1415926f) * 0.72f;
+			}
+			else if (captureVisualSample.phase == CapturePhase::Shaking)
+			{
+				const float shake = std::sin(captureVisualSample.phaseProgress * 6.2831853f);
+				ballIndicatorPosition.x += shake * 0.12f;
+				ballIndicatorColor = glm::vec3(1.0f, 0.76f, 0.20f);
+			}
+			else if (captureVisualSample.phase == CapturePhase::Succeeded)
+			{
+				ballIndicatorColor = glm::vec3(0.34f, 1.0f, 0.48f);
+				ballIndicatorDiameter += captureVisualSample.phaseProgress * 0.28f;
+			}
+			drawTargetRing(ballIndicatorPosition, ballIndicatorDiameter,
+			               ballIndicatorColor, 0.95f);
+		}
 		const float captureEffectAge = indicatorTime - static_cast<float>(captureEffectStarted);
 		if (captureEffectAge >= 0.0f && captureEffectAge < 0.9f)
 		{
 			glm::vec3 effectPosition = captureEffectPosition + glm::vec3(0.0f, 0.12f, 0.0f);
 			const float effectProgress = captureEffectAge / 0.9f;
+			const glm::vec3 effectColor = captureEffectSucceeded
+			                                  ? glm::vec3(0.32f, 1.0f, 0.48f)
+			                                  : glm::vec3(1.0f, 0.25f, 0.16f);
 			drawTargetRing(effectPosition, 2.0f + effectProgress * 4.2f,
-			               glm::vec3(1.0f, 0.76f, 0.18f), 1.0f - effectProgress);
+			               effectColor, 1.0f - effectProgress);
 		}
 		glDepthMask(GL_TRUE);
 		targetshader->unbind();
@@ -1463,7 +1716,9 @@ GLuint rockTex, umbreonTex;
 		for (int i = 0; i < NUM_POKEMON; i++)
 		{
 			// if flag been caught, then don't draw, if too far, don't draw
-			if (umbreons[i].getCaught() == 1)
+			if (umbreons[i].getCaught() == 1 ||
+			    (isPendingCaptureTarget(umbreons[i]) &&
+			     !captureVisualSample.pokemonVisible))
 			{
 				continue;
 			}
@@ -1516,7 +1771,9 @@ GLuint rockTex, umbreonTex;
 		glBindTexture(GL_TEXTURE_2D, fireTex);
 		for (int i = 0; i < FLYING_POKEMON; i++)
 		{
-			if (charizards[i].getCaught() == 1)
+			if (charizards[i].getCaught() == 1 ||
+			    (isPendingCaptureTarget(charizards[i]) &&
+			     !captureVisualSample.pokemonVisible))
 			{
 				continue;
 			}
