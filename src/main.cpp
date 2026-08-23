@@ -1377,8 +1377,6 @@ GLuint grayTex, rockTex, umbreonTex;
 		}
 		glUniform1f(pokemon2->getUniform("surfaceDeform"), 0.0f);
 
-		S = glm::scale(glm::mat4(1.0f), glm::vec3(0.34f, 0.34f, 0.34f));
-
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, grayTex);
 		// umbreon
@@ -1404,20 +1402,24 @@ GLuint grayTex, rockTex, umbreonTex;
 			animationInput.speedRatio = speedRatio;
 			animationInput.phase = umbreons[i].getMotionPhase();
 			const PokemonAnimationPose pose = samplePokemonAnimation(animationInput);
+			const bool renderUmbreon = companionShapes.empty() || i % 5 == 0;
+			shared_ptr<Shape> wildShape = renderUmbreon
+				? umbreon
+				: companionShapes[static_cast<size_t>(i) % companionShapes.size()];
+			const float creatureScale = renderUmbreon ? 0.55f : 0.34f;
+			const float groundOffset = renderUmbreon ? 0.34f : 0.2f;
 			vec3 wildPosition = umbreons[i].getPos();
 			wildPosition.y = terrainHeightMap.heightAt(wildPosition.x, wildPosition.z) +
-			                 0.2f + pose.bodyBob;
+			                 groundOffset + pose.bodyBob;
 			T = glm::translate(glm::mat4(1.0f), wildPosition);
 			R = glm::rotate(glm::mat4(1.0f), umbreons[i].getHeading(), glm::vec3(0.0f, 1.0f, 0.0f));
 			mat4 Lean = glm::rotate(glm::mat4(1.0f), pose.bodyPitch,
 			                        glm::vec3(1.0f, 0.0f, 0.0f));
 			mat4 Breathing = glm::scale(glm::mat4(1.0f),
 			                            glm::vec3(1.0f, pose.breathingScale, 1.0f));
-			const mat4 creatureRoot = T * R * Lean * S * Breathing;
-			const bool renderUmbreon = companionShapes.empty() || i % 5 == 0;
-			shared_ptr<Shape> wildShape = renderUmbreon
-				? umbreon
-				: companionShapes[static_cast<size_t>(i) % companionShapes.size()];
+			mat4 CreatureScale = glm::scale(glm::mat4(1.0f),
+			                                glm::vec3(creatureScale));
+			const mat4 creatureRoot = T * R * Lean * CreatureScale * Breathing;
 			if (renderUmbreon)
 			{
 				glActiveTexture(GL_TEXTURE0);
