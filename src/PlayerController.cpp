@@ -88,13 +88,17 @@ PlayerMotionEvents PlayerController::update(const PlayerInput &rawInput, float d
 	float centerLimit = std::max(0.0f, config_.fieldHalfExtent - config_.collisionRadius);
 	if (nextPosition.x < -centerLimit || nextPosition.x > centerLimit)
 	{
-		events.hitBoundary = true;
+		bool enteringContact = position_.x > -centerLimit + CONTACT_EPSILON &&
+		                       position_.x < centerLimit - CONTACT_EPSILON;
+		events.hitBoundary = events.hitBoundary || enteringContact;
 		nextPosition.x = std::max(-centerLimit, std::min(centerLimit, nextPosition.x));
 		horizontalVelocity_.x = 0.0f;
 	}
 	if (nextPosition.z < -centerLimit || nextPosition.z > centerLimit)
 	{
-		events.hitBoundary = true;
+		bool enteringContact = position_.z > -centerLimit + CONTACT_EPSILON &&
+		                       position_.z < centerLimit - CONTACT_EPSILON;
+		events.hitBoundary = events.hitBoundary || enteringContact;
 		nextPosition.z = std::max(-centerLimit, std::min(centerLimit, nextPosition.z));
 		horizontalVelocity_.z = 0.0f;
 	}

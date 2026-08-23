@@ -86,18 +86,20 @@ void testGravityAcceleratesAndLandsOnce()
 void testBoundaryUsesCollisionRadiusAndSlides()
 {
 	PlayerController player;
-	player.reset(glm::vec3(47.0f, 0.0f, 0.0f), -1.5707963f);
+	player.reset(glm::vec3(47.0f, 0.0f, 0.0f), -1.2f);
 	PlayerInput input;
 	input.forward = 1.0f;
-	input.turn = 0.35f;
 
-	bool hitBoundary = false;
+	int boundaryEvents = 0;
 	for (int i = 0; i < 80; ++i)
 	{
 		PlayerMotionEvents events = player.update(input, 0.05f);
-		hitBoundary = hitBoundary || events.hitBoundary;
+		if (events.hitBoundary)
+		{
+			++boundaryEvents;
+		}
 	}
-	expectTrue(hitBoundary, "field boundary collision is reported");
+	expectTrue(boundaryEvents == 1, "field boundary collision is reported once per contact");
 	expectTrue(player.position().x <= 47.2001f, "collision radius stays inside the field edge");
 	expectTrue(std::fabs(player.position().z) > 0.1f,
 	           "boundary collision preserves tangential motion instead of freezing the player");
