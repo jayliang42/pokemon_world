@@ -749,6 +749,7 @@ public:
 		prog->addUniform("P");
 		prog->addUniform("V");
 		prog->addUniform("M");
+		prog->addUniform("time");
 		prog->addAttribute("vertPos");
 		prog->addAttribute("vertNor");
 		prog->addAttribute("vertTex");
@@ -879,27 +880,25 @@ public:
 			captureRequested = false;
 		}
 
-		// animation with the model matrix:
-		static float w = 0.0;
-		w += 1.0 * frametime; // rotation angle
-		float trans = 0;	  // sin(t) * 2;
-		glm::mat4 RotateY = glm::rotate(glm::mat4(1.0f), w, glm::vec3(0.0f, 1.0f, 0.0f));
+		// Keep the sky centered on the camera and let only its orientation follow
+		// the player's view. Cloud motion is handled slowly in the sky shader.
+		float trans = 0;
 		float angle = -3.1415926 / 2.0;
 		glm::mat4 RotateX = glm::rotate(glm::mat4(1.0f), angle, glm::vec3(1.0f, 0.0f, 0.0f));
 		glm::mat4 TransZ = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -3 + trans));
 		glm::mat4 S = glm::scale(glm::mat4(1.0f), glm::vec3(0.8f, 0.8f, 0.8f));
 		S = glm::scale(glm::mat4(1.0f), glm::vec3(100.0f, 100.0f, 100.0f));
-		M = TransZ * RotateY * RotateX * S;
+		M = RotateX * S;
 
 		// Draw the box using GLSL.
 
 		prog->bind();
 
-		V = mat4(1);
-		// storm effect
+		V = glm::mat4(glm::mat3(playerView));
 		glUniformMatrix4fv(prog->getUniform("P"), 1, GL_FALSE, &P[0][0]);
 		glUniformMatrix4fv(prog->getUniform("V"), 1, GL_FALSE, &V[0][0]);
 		glUniformMatrix4fv(prog->getUniform("M"), 1, GL_FALSE, &M[0][0]);
+		glUniform1f(prog->getUniform("time"), static_cast<float>(glfwGetTime()));
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, Texture);
 
@@ -1005,9 +1004,6 @@ public:
 		V = playerView;
 		glUniformMatrix4fv(pokemon2->getUniform("V"), 1, GL_FALSE, &V[0][0]);
 		applySceneLighting(pokemon2, V);
-		// rotate Y 90 degree
-		RotateY = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(-1.0f, 0.0f, 0.0f));
-
 		S = glm::scale(glm::mat4(1.0f), glm::vec3(0.34f, 0.34f, 0.34f));
 
 		glActiveTexture(GL_TEXTURE0);
