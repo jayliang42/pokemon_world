@@ -137,6 +137,35 @@
     .hud-player { left: 18px; bottom: 18px; }
     .hud-target { right: 18px; top: 18px; }
 
+    .hud-player.is-dodging,
+    .hud-player.is-invulnerable {
+      border-color: rgba(116, 226, 255, 0.78);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32),
+                  0 0 22px rgba(72, 205, 255, 0.28);
+    }
+
+    #dodge-state { white-space: nowrap; }
+    .hud-player.is-cooling #dodge-state { color: #ffd074; }
+    .hud-player.is-dodging #dodge-state,
+    .hud-player.is-invulnerable #dodge-state { color: #d9f9ff; }
+
+    .dodge-track {
+      height: 3px;
+      margin-top: 7px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.38);
+    }
+
+    .dodge-fill {
+      width: 100%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #49aee8, #8deaff);
+      box-shadow: 0 0 9px rgba(81, 205, 255, 0.58);
+      transition: width 90ms linear;
+    }
+
     .mission-panel {
       position: absolute;
       top: 18px;
@@ -495,16 +524,21 @@
               <span class="mission-value">0 / 5</span>
             </div>
           </section>
-          <section class="hud-card hud-player">
+          <section id="player-hud" class="hud-card hud-player">
             <div class="hud-heading">
               <span class="hud-name">Charizard</span>
-              <span class="hud-tag">ALLY</span>
+              <span id="dodge-state" class="hud-tag">SHIFT READY</span>
             </div>
             <div class="hud-values"><span>HP</span><span id="player-hp-text">118 / 118</span></div>
             <div class="hp-track">
               <div id="player-hp-fill" class="hp-fill" role="progressbar"
                    aria-label="Charizard health" aria-valuemin="0" aria-valuemax="118"
                    aria-valuenow="118"></div>
+            </div>
+            <div class="dodge-track">
+              <div id="dodge-fill" class="dodge-fill" role="progressbar"
+                   aria-label="Dodge readiness" aria-valuemin="0" aria-valuemax="1"
+                   aria-valuenow="1"></div>
             </div>
           </section>
           <section id="target-hud" class="hud-card hud-target" hidden>
@@ -573,6 +607,7 @@
       <div class="control"><kbd>W</kbd><kbd>S</kbd> Accelerate / reverse</div>
       <div class="control"><kbd>A</kbd><kbd>D</kbd> Turn left / right</div>
       <div class="control"><kbd>Q</kbd><kbd>Space</kbd> Climb · <kbd>E</kbd> Descend</div>
+      <div class="control"><kbd>Shift</kbd> Dodge · evade during the hit window</div>
       <div class="control"><kbd>Z</kbd> Toggle gravity</div>
       <div class="control"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Select a move</div>
       <div class="control"><kbd>X</kbd> Use the selected move</div>
@@ -588,6 +623,9 @@
     const telemetryElement = document.getElementById('telemetry');
     const playerHpFill = document.getElementById('player-hp-fill');
     const playerHpText = document.getElementById('player-hp-text');
+    const playerHud = document.getElementById('player-hud');
+    const dodgeState = document.getElementById('dodge-state');
+    const dodgeFill = document.getElementById('dodge-fill');
     const targetHud = document.getElementById('target-hud');
     const targetName = document.getElementById('target-name');
     const targetHpFill = document.getElementById('target-hp-fill');
@@ -656,6 +694,23 @@
       else slot.removeAttribute('aria-current');
       moveHud.classList.toggle('is-busy', busy);
       moveHint.textContent = busy ? 'ACTION IN PROGRESS' : '1–3 SELECT · X USE';
+    }
+
+    function updateDodgeHud(remainingSeconds, cooldownFraction,
+                            dodging, invulnerable) {
+      const remaining = Math.max(0, Number(remainingSeconds) || 0);
+      const fraction = Math.max(0, Math.min(1, Number(cooldownFraction) || 0));
+      playerHud.classList.toggle('is-cooling', remaining > 0.01);
+      playerHud.classList.toggle('is-dodging', Boolean(dodging));
+      playerHud.classList.toggle('is-invulnerable', Boolean(invulnerable));
+      dodgeState.textContent = invulnerable
+        ? 'EVADE'
+        : (dodging ? 'DASH' : (remaining > 0.01
+          ? `${remaining.toFixed(1)}s`
+          : 'SHIFT READY'));
+      const readiness = 1 - fraction;
+      dodgeFill.style.width = `${readiness * 100}%`;
+      dodgeFill.setAttribute('aria-valuenow', readiness.toFixed(3));
     }
 
     function updateAudioToggle() {
@@ -741,6 +796,13 @@
       } else if (cue === 'target-impact' || cue === 'player-impact') {
         scheduleNoise(context, now, 0.11, cue === 'player-impact' ? 0.045 : 0.035);
         scheduleTone(context, now, base * 0.7, base * 0.42, 0.12, 'square', 0.026);
+      } else if (cue === 'dodge') {
+        scheduleNoise(context, now, 0.10, 0.022);
+        scheduleTone(context, now, 430, 940, 0.11, 'triangle', 0.026);
+      } else if (cue === 'dodge-success') {
+        scheduleNoise(context, now, 0.075, 0.016);
+        scheduleTone(context, now, 620, 980, 0.09, 'sine', 0.026);
+        scheduleTone(context, now + 0.055, 860, 1220, 0.10, 'sine', 0.021);
       } else if (cue === 'capture-throw') {
         scheduleTone(context, now, 390, 860, 0.18, 'sine', 0.03);
       } else if (cue === 'capture-hit') {
@@ -801,6 +863,11 @@
                            remainingSeconds, cooldownFraction, selected, busy) {
         updateMoveSlot(slotIndex, moveName, moveType, movePower,
                        remainingSeconds, cooldownFraction, selected, busy);
+      },
+      onDodgeHud: function (remainingSeconds, cooldownFraction,
+                           dodging, invulnerable) {
+        updateDodgeHud(remainingSeconds, cooldownFraction,
+                       dodging, invulnerable);
       },
       onGameCue: function (cue, moveType) {
         playGameCue(cue, moveType);

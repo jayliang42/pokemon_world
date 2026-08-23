@@ -134,6 +134,7 @@ with the asset.
 - `A` / `D`: turn left and right
 - `Q` or `Space`: climb
 - `E`: descend
+- `Shift`: dodge forward; time it against a wild Pokemon's incoming attack
 - `Z`: toggle gravity and return toward the field
 - `1` / `2` / `3`: select Ember, Air Slash, or Flamethrower
 - `X`: use the selected move on the locked Pokemon
@@ -153,10 +154,15 @@ Flying-type coverage, and Flamethrower trades the longest cooldown for the
 highest power. Cooldowns begin only when an attack actually starts, and each
 move recharges independently.
 
-The browser build synthesizes lightweight battle, capture, and landing sound
-effects with Web Audio after the first player interaction. No commercial game
-audio is bundled, and the sound toggle in the page header can mute feedback at
-any time.
+Dodging has its own cooldown and a short invulnerability window. Wild attacks
+lock their impact point when the projectile launches, so a well-timed dodge can
+avoid damage by leaving that area. Dodge movement still obeys the player's
+collision radius, field boundary, terrain height, and boulder collision.
+
+The browser build synthesizes lightweight battle, dodge, capture, and landing
+sound effects with Web Audio after the first player interaction. No commercial
+game audio is bundled, and the sound toggle in the page header can mute feedback
+at any time.
 
 Progress autosaves after battles, Poke Ball throws, capture results, and safe
 landings. The browser build restores its validated save from local storage on
