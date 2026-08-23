@@ -7,6 +7,45 @@ uniform sampler2D tex;
 uniform sampler2D tex2;
 uniform float time;
 
+float hash31(vec3 position)
+{
+	position = fract(position * 0.1031);
+	position += dot(position, position.yzx + 33.33);
+	return fract((position.x + position.y) * position.z);
+}
+
+float valueNoise(vec3 position)
+{
+	vec3 cell = floor(position);
+	vec3 local = fract(position);
+	vec3 blend = local * local * (3.0 - 2.0 * local);
+
+	float x00 = mix(hash31(cell + vec3(0.0, 0.0, 0.0)),
+	                  hash31(cell + vec3(1.0, 0.0, 0.0)), blend.x);
+	float x10 = mix(hash31(cell + vec3(0.0, 1.0, 0.0)),
+	                  hash31(cell + vec3(1.0, 1.0, 0.0)), blend.x);
+	float x01 = mix(hash31(cell + vec3(0.0, 0.0, 1.0)),
+	                  hash31(cell + vec3(1.0, 0.0, 1.0)), blend.x);
+	float x11 = mix(hash31(cell + vec3(0.0, 1.0, 1.0)),
+	                  hash31(cell + vec3(1.0, 1.0, 1.0)), blend.x);
+	float y0 = mix(x00, x10, blend.y);
+	float y1 = mix(x01, x11, blend.y);
+	return mix(y0, y1, blend.z);
+}
+
+float cloudFbm(vec3 position)
+{
+	float value = 0.0;
+	float amplitude = 0.5;
+	for (int octave = 0; octave < 4; ++octave)
+	{
+		value += valueNoise(position) * amplitude;
+		position = position * 2.03 + vec3(17.1, 9.2, 13.7);
+		amplitude *= 0.5;
+	}
+	return value;
+}
+
 void main()
 {
 vec3 skyDirection = normalize(vertex_pos);
@@ -24,13 +63,13 @@ vec3 cloudDirection = vec3(
 	cloudCos * skyDirection.x - cloudSin * skyDirection.z,
 	skyDirection.y,
 	cloudSin * skyDirection.x + cloudCos * skyDirection.z);
-float cloudLowA = sin(cloudDirection.x * 9.0 + cloudDirection.z * 11.0 + cloudDirection.y * 7.0);
-float cloudLowB = sin(cloudDirection.x * 15.0 - cloudDirection.z * 5.0 + cloudDirection.y * 13.0);
-float cloudDetail = sin(cloudDirection.x * 28.0 + cloudDirection.z * 19.0 - cloudDirection.y * 17.0);
-float cloudNoise = 0.5 + 0.5 * (cloudLowA * cloudLowB * 0.68 + cloudDetail * 0.32);
-float cloudHeight = smoothstep(0.02, 0.28, skyDirection.y) * smoothstep(0.98, 0.36, skyDirection.y);
-float cloudMask = smoothstep(0.58, 0.74, cloudNoise) * cloudHeight;
-skyColor = mix(skyColor, vec3(1.0, 0.98, 0.94), cloudMask * 0.78);
+float cloudBase = cloudFbm(cloudDirection * 3.4 + vec3(2.3, 1.1, -3.7));
+float cloudDetail = cloudFbm(cloudDirection * 7.6 + vec3(-4.1, 3.8, 1.6));
+float cloudNoise = cloudBase * 0.76 + cloudDetail * 0.24;
+float cloudHeight = smoothstep(0.02, 0.20, skyDirection.y) *
+	                (1.0 - smoothstep(0.58, 0.96, skyDirection.y));
+float cloudMask = smoothstep(0.50, 0.66, cloudNoise) * cloudHeight;
+skyColor = mix(skyColor, vec3(1.0, 0.985, 0.95), cloudMask * 0.86);
 
 vec3 sunDirection = normalize(vec3(-0.38, 0.82, -0.42));
 float sunAlignment = max(dot(skyDirection, sunDirection), 0.0);
