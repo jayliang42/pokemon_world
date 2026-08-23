@@ -184,6 +184,31 @@ public:
 #endif
 	}
 
+	void addSceneLightingUniforms(const std::shared_ptr<Program> &program)
+	{
+		program->addUniform("sunDirection");
+		program->addUniform("sunColor");
+		program->addUniform("ambientColor");
+		program->addUniform("fogColor");
+		program->addUniform("fogStart");
+		program->addUniform("fogEnd");
+	}
+
+	void applySceneLighting(const std::shared_ptr<Program> &program, const glm::mat4 &view)
+	{
+		const glm::vec3 sunDirectionWorld = glm::normalize(glm::vec3(-0.38f, 0.82f, -0.42f));
+		const glm::vec3 sunDirectionView = glm::normalize(glm::mat3(view) * sunDirectionWorld);
+		const glm::vec3 sunColor(1.0f, 0.91f, 0.74f);
+		const glm::vec3 ambientColor(0.52f, 0.60f, 0.70f);
+		const glm::vec3 fogColor(0.66f, 0.84f, 0.96f);
+		glUniform3fv(program->getUniform("sunDirection"), 1, &sunDirectionView[0]);
+		glUniform3fv(program->getUniform("sunColor"), 1, &sunColor[0]);
+		glUniform3fv(program->getUniform("ambientColor"), 1, &ambientColor[0]);
+		glUniform3fv(program->getUniform("fogColor"), 1, &fogColor[0]);
+		glUniform1f(program->getUniform("fogStart"), 26.0f);
+		glUniform1f(program->getUniform("fogEnd"), 62.0f);
+	}
+
 	void resetGame()
 	{
 		for (int i = 0; i < NUM_POKEMON; ++i)
@@ -771,6 +796,7 @@ public:
 		pokemon->addUniform("P");
 		pokemon->addUniform("V");
 		pokemon->addUniform("M");
+		addSceneLightingUniforms(pokemon);
 		pokemon->addAttribute("vertPos");
 		pokemon->addAttribute("vertTex");
 		pokemon->addAttribute("vertNor");
@@ -786,6 +812,7 @@ public:
 		pokemon2->addUniform("P");
 		pokemon2->addUniform("V");
 		pokemon2->addUniform("M");
+		addSceneLightingUniforms(pokemon2);
 		pokemon2->addAttribute("vertPos");
 		pokemon2->addAttribute("vertTex");
 		pokemon2->addAttribute("vertNor");
@@ -953,6 +980,7 @@ public:
 			}
 		}
 		V = mat4(1);
+		applySceneLighting(pokemon, V);
 		S = glm::scale(glm::mat4(1.0f), glm::vec3(0.24f, 0.24f, 0.24f));
 		// Keep the player model in a stable camera-space layer instead of
 		// placing it almost on the near clipping plane.
@@ -974,6 +1002,7 @@ public:
 		glUniformMatrix4fv(pokemon2->getUniform("P"), 1, GL_FALSE, &P[0][0]);
 		V = playerView;
 		glUniformMatrix4fv(pokemon2->getUniform("V"), 1, GL_FALSE, &V[0][0]);
+		applySceneLighting(pokemon2, V);
 		// rotate Y 90 degree
 		RotateY = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(-1.0f, 0.0f, 0.0f));
 

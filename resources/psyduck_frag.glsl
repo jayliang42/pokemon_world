@@ -5,15 +5,24 @@ in vec3 vertex_pos;
 in vec2 vertex_tex;
 uniform sampler2D tex;
 uniform sampler2D tex2;
+uniform vec3 sunDirection;
+uniform vec3 sunColor;
+uniform vec3 ambientColor;
+uniform vec3 fogColor;
+uniform float fogStart;
+uniform float fogEnd;
 
 void main()
 {
-vec3 n = normalize(vertex_normal);
-vec3 lp=vec3(10,-20,-100);
-vec3 ld = normalize(vertex_pos - lp);
-float diffuse = dot(n,ld);
-
-vec4 tcol = texture(tex, vertex_tex);
-color = tcol + vec4(0.22,0.22,0.22,0.0);
-color.a = 1.0;
+	vec3 normal = normalize(vertex_normal);
+	vec3 baseColor = texture(tex, vertex_tex).rgb;
+	float diffuse = max(dot(normal, normalize(sunDirection)), 0.0);
+	float skyFill = 0.5 + 0.5 * normal.y;
+	vec3 illumination = ambientColor * (0.84 + 0.16 * skyFill) +
+	                    sunColor * diffuse * 0.78;
+	vec3 viewDirection = normalize(-vertex_pos);
+	float rim = pow(1.0 - max(dot(normal, viewDirection), 0.0), 2.2);
+	vec3 litColor = baseColor * illumination + sunColor * rim * 0.12;
+	float fogAmount = smoothstep(fogStart, fogEnd, length(vertex_pos));
+	color = vec4(mix(litColor, fogColor, fogAmount), 1.0);
 }

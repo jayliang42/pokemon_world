@@ -11,15 +11,11 @@ out vec3 vertex_normal;
 out vec2 vertex_tex;
 
 void main()
-{	
-	vertex_normal = vec4(M * vec4(vertNor,0.0)).xyz;
-	vec4 pos = M * vec4(vertPos,1.0);
-	gl_Position = P * V * pos;
+{
+	mat4 modelView = V * M;
+	vec4 viewPosition = modelView * vec4(vertPos, 1.0);
+	vertex_normal = normalize(mat3(modelView) * vertNor);
+	vertex_pos = viewPosition.xyz;
+	gl_Position = P * viewPosition;
 	vertex_tex = vertTex;
-    vertex_pos = vertPos;
-}
-
-//random seed function
-float rand(vec2 co){
-    return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
 }
