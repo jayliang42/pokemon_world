@@ -782,6 +782,7 @@ public:
 		heightshader->addUniform("M");
 		heightshader->addUniform("camoff");
 		heightshader->addUniform("campos");
+		addSceneLightingUniforms(heightshader);
 		heightshader->addAttribute("vertPos");
 		heightshader->addAttribute("vertTex");
 
@@ -916,6 +917,7 @@ public:
 		glUniformMatrix4fv(heightshader->getUniform("M"), 1, GL_FALSE, &M[0][0]);
 		glUniformMatrix4fv(heightshader->getUniform("P"), 1, GL_FALSE, &P[0][0]);
 		glUniformMatrix4fv(heightshader->getUniform("V"), 1, GL_FALSE, &V[0][0]);
+		applySceneLighting(heightshader, V);
 
 		vec3 offset = mycam.pos;
 		offset.y = 0;

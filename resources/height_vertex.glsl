@@ -6,6 +6,8 @@ uniform mat4 P;
 uniform mat4 V;
 uniform mat4 M;
 out vec3 vertex_pos;
+out vec3 view_pos;
+out vec3 vertex_normal;
 out vec2 vertex_tex;
 uniform sampler2D tex;
 
@@ -29,7 +31,9 @@ void main()
 
 	// tpos.y += height;
 	vertex_pos = tpos.xyz;
-
-	gl_Position = P * V * tpos;
+	vec4 viewPosition = V * tpos;
+	view_pos = viewPosition.xyz;
+	vertex_normal = normalize(mat3(V) * vec3(0.0, 1.0, 0.0));
+	gl_Position = P * viewPosition;
 	vertex_tex = vertTex;
 }
