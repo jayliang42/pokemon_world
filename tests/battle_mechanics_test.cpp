@@ -34,6 +34,9 @@ void testSpeciesStatsAndMovesAreDistinct()
 	expectTrue(wildBattleMoveFor(PokemonSpecies::Charizard).id ==
 	               BattleMoveId::WingAttack,
 	           "Charizard uses Wing Attack as its counter move");
+	expectTrue(playerBattleMoves()[1].id == BattleMoveId::AirSlash &&
+	               playerBattleMoves()[2].id == BattleMoveId::Flamethrower,
+	           "the player loadout exposes the additional Charizard moves");
 }
 
 void testTypeMatchAndEffectiveness()
@@ -98,4 +101,3 @@ int main()
 	std::cout << "All battle mechanic tests passed" << std::endl;
 	return 0;
 }
-

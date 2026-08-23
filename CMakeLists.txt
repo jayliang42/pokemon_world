@@ -83,6 +83,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       "${CMAKE_SOURCE_DIR}/src")
   add_test(NAME pokemon_battle_mechanics COMMAND battle_mechanics_tests)
 
+	add_executable(battle_move_loadout_tests
+	    tests/battle_move_loadout_test.cpp
+	    src/BattleMechanics.cpp
+	    src/BattleMoveLoadout.cpp)
+	target_include_directories(battle_move_loadout_tests PRIVATE
+	    "${CMAKE_SOURCE_DIR}/src")
+	add_test(NAME pokemon_battle_move_loadout COMMAND battle_move_loadout_tests)
+
   add_executable(battle_sequence_tests
       tests/battle_sequence_test.cpp
       src/BattleSequence.cpp)

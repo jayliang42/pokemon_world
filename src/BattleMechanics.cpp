@@ -19,7 +19,17 @@ BattleStats battleStatsFor(PokemonSpecies species)
 
 BattleMove playerBattleMove()
 {
-	return {BattleMoveId::Ember, "Ember", PokemonType::Fire, 28};
+	return playerBattleMoves()[0];
+}
+
+const std::array<BattleMove, PLAYER_MOVE_SLOT_COUNT> &playerBattleMoves()
+{
+	static const std::array<BattleMove, PLAYER_MOVE_SLOT_COUNT> moves = {{
+		{BattleMoveId::Ember, "Ember", PokemonType::Fire, 28, 2.8f},
+		{BattleMoveId::AirSlash, "Air Slash", PokemonType::Flying, 34, 4.6f},
+		{BattleMoveId::Flamethrower, "Flamethrower", PokemonType::Fire, 42, 7.2f},
+	}};
+	return moves;
 }
 
 BattleMove wildBattleMoveFor(PokemonSpecies species)
@@ -27,11 +37,11 @@ BattleMove wildBattleMoveFor(PokemonSpecies species)
 	switch (species)
 	{
 	case PokemonSpecies::Umbreon:
-		return {BattleMoveId::Bite, "Bite", PokemonType::Dark, 24};
+		return {BattleMoveId::Bite, "Bite", PokemonType::Dark, 24, 0.0f};
 	case PokemonSpecies::Bulbasaur:
-		return {BattleMoveId::VineWhip, "Vine Whip", PokemonType::Grass, 26};
+		return {BattleMoveId::VineWhip, "Vine Whip", PokemonType::Grass, 26, 0.0f};
 	case PokemonSpecies::Charizard:
-		return {BattleMoveId::WingAttack, "Wing Attack", PokemonType::Flying, 30};
+		return {BattleMoveId::WingAttack, "Wing Attack", PokemonType::Flying, 30, 0.0f};
 	}
 	return BattleMove();
 }
@@ -99,4 +109,3 @@ BattleDamageResult resolveBattleDamage(PokemonSpecies attackerSpecies,
 		                               result.effectiveness)));
 	return result;
 }
-

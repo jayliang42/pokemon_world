@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include "PokemonSpecies.h"
 
 enum class PokemonType
@@ -14,6 +16,8 @@ enum class PokemonType
 enum class BattleMoveId
 {
 	Ember,
+	AirSlash,
+	Flamethrower,
 	VineWhip,
 	Bite,
 	WingAttack,
@@ -32,6 +36,7 @@ struct BattleMove
 	const char *name = "Ember";
 	PokemonType type = PokemonType::Fire;
 	int power = 1;
+	float cooldownSeconds = 1.0f;
 };
 
 struct BattleDamageResult
@@ -42,6 +47,8 @@ struct BattleDamageResult
 };
 
 BattleStats battleStatsFor(PokemonSpecies species);
+constexpr int PLAYER_MOVE_SLOT_COUNT = 3;
+const std::array<BattleMove, PLAYER_MOVE_SLOT_COUNT> &playerBattleMoves();
 BattleMove playerBattleMove();
 BattleMove wildBattleMoveFor(PokemonSpecies species);
 float battleTypeEffectiveness(PokemonType attackType,
@@ -50,4 +57,3 @@ bool moveMatchesSpecies(PokemonType moveType, PokemonSpecies species);
 BattleDamageResult resolveBattleDamage(PokemonSpecies attackerSpecies,
 	                                    PokemonSpecies defenderSpecies,
 	                                    const BattleMove &move);
-
