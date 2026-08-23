@@ -13,13 +13,22 @@ uniform sampler2D tex;
 
 uniform vec3 camoff;
 
+float terrainHeight(vec2 coordinates)
+{
+	return texture(tex, coordinates).r * 10.0 - 5.0;
+}
+
 void main()
 {
 	vec2 texcoords=vertTex;
 	float t=1./100.;
 	texcoords -= vec2(camoff.x,camoff.z)*t;
-	// float height = texture(tex, texcoords).r;
-	// height *= 10.0-5;
+	float height = terrainHeight(texcoords);
+	float leftHeight = terrainHeight(texcoords - vec2(t, 0.0));
+	float rightHeight = terrainHeight(texcoords + vec2(t, 0.0));
+	float nearHeight = terrainHeight(texcoords - vec2(0.0, t));
+	float farHeight = terrainHeight(texcoords + vec2(0.0, t));
+	vec3 worldNormal = normalize(vec3(leftHeight - rightHeight, 2.0, nearHeight - farHeight));
 
 
 	vec4 tpos =  vec4(vertPos, 1.0);
@@ -29,11 +38,11 @@ void main()
 	tpos =  M * tpos;
 
 
-	// tpos.y += height;
+	tpos.y += height;
 	vertex_pos = tpos.xyz;
 	vec4 viewPosition = V * tpos;
 	view_pos = viewPosition.xyz;
-	vertex_normal = normalize(mat3(V) * vec3(0.0, 1.0, 0.0));
+	vertex_normal = normalize(mat3(V) * worldNormal);
 	gl_Position = P * viewPosition;
 	vertex_tex = vertTex;
 }

@@ -20,6 +20,7 @@ Modified by: <Zhisong Liang>
 #include "MatrixStack.h"
 #include "Pokemon.cpp"
 #include "PlayerController.h"
+#include "TerrainHeightMap.h"
 
 #include "WindowManager.h"
 #include "Shape.h"
@@ -109,6 +110,13 @@ public:
 		return controller_.grounded();
 	}
 
+	void setGroundHeightProvider(PlayerController::GroundHeightProvider provider)
+	{
+		controller_.setGroundHeightProvider(provider);
+		mypos = controller_.position();
+		pos = -mypos;
+	}
+
 	const PlayerMotionEvents &motionEvents() const
 	{
 		return motionEvents_;
@@ -142,6 +150,7 @@ public:
 	// texture data
 	GLuint Texture, grassTexture, HeightTex, PokeballTex, fireTex, Texture5;
 	GLuint grayTex;
+	TerrainHeightMap terrainHeightMap;
 	std::string resourceDirectory;
 	int caughtCount = 0;
 	int pokeballs = STARTING_POKEBALLS;
@@ -244,12 +253,17 @@ public:
 
 		Pokemon *target = nullptr;
 		float targetDistance = std::numeric_limits<float>::max();
-		auto consider = [&](Pokemon &candidate, float captureRange) {
+		auto consider = [&](Pokemon &candidate, float captureRange, bool followsTerrain) {
 			if (candidate.getCaught())
 			{
 				return;
 			}
-			float distance = glm::distance(mypos, candidate.getPos());
+			glm::vec3 candidatePosition = candidate.getPos();
+			if (followsTerrain)
+			{
+				candidatePosition.y = terrainHeightMap.heightAt(candidatePosition.x, candidatePosition.z);
+			}
+			float distance = glm::distance(mypos, candidatePosition);
 			if (distance <= captureRange && distance < targetDistance)
 			{
 				target = &candidate;
@@ -259,11 +273,11 @@ public:
 
 		for (int i = 0; i < NUM_POKEMON; ++i)
 		{
-			consider(umbreons[i], 5.0f);
+			consider(umbreons[i], 5.0f, true);
 		}
 		for (int i = 0; i < FLYING_POKEMON; ++i)
 		{
-			consider(charizards[i], 12.0f);
+			consider(charizards[i], 12.0f, false);
 		}
 
 		if (!target)
@@ -632,6 +646,11 @@ public:
 		str = resourceDirectory + "/height.png";
 		strcpy(filepath, str.c_str());
 		data = stbi_load(filepath, &width, &height, &channels, 4);
+		if (!data || !terrainHeightMap.setPixels(width, height, data, 4))
+		{
+			std::cerr << "Unable to load terrain height map: " << str << std::endl;
+			exit(1);
+		}
 		glGenTextures(1, &HeightTex);
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, HeightTex);
@@ -641,6 +660,11 @@ public:
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 		glGenerateMipmap(GL_TEXTURE_2D);
+		stbi_image_free(data);
+		data = nullptr;
+		mycam.setGroundHeightProvider([this](float worldX, float worldZ) {
+			return terrainHeightMap.heightAt(worldX, worldZ);
+		});
 
 		// texture 4
 		str = resourceDirectory + "/Texture/pokeball.jpg";
@@ -1027,7 +1051,8 @@ public:
 				continue;
 			}
 			vec3 wildPosition = umbreons[i].getPos();
-			wildPosition.y += 0.2f + 0.04f * std::sin(motionTime * 2.4f + umbreons[i].getMotionPhase());
+			wildPosition.y = terrainHeightMap.heightAt(wildPosition.x, wildPosition.z) +
+			                 0.2f + 0.04f * std::sin(motionTime * 2.4f + umbreons[i].getMotionPhase());
 			T = glm::translate(glm::mat4(1.0f), wildPosition);
 			R = glm::rotate(glm::mat4(1.0f), umbreons[i].getHeading(), glm::vec3(0.0f, 1.0f, 0.0f));
 			M = T * R * S;
