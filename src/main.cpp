@@ -700,7 +700,9 @@ GLuint rockTex, umbreonTex;
 			return;
 		}
 		const std::string speciesName = pokemonSpeciesName(target->getSpecies());
-		const float captureRange = currentTarget.flying ? 12.0f : 5.0f;
+		const float captureRange = currentTarget.flying
+		                               ? FLYING_TARGETING_RANGE
+		                               : GROUND_TARGETING_RANGE;
 		if (currentTarget.distance > captureRange)
 		{
 			std::ostringstream message;

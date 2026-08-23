@@ -4,6 +4,9 @@
 
 #include <glm/glm.hpp>
 
+constexpr float GROUND_TARGETING_RANGE = 14.0f;
+constexpr float FLYING_TARGETING_RANGE = 24.0f;
+
 struct PokemonTargetCandidate
 {
 	int index = -1;
@@ -24,8 +27,8 @@ struct PokemonTargetSelection
 
 struct PokemonTargetingConfig
 {
-	float groundRange = 14.0f;
-	float flyingRange = 24.0f;
+	float groundRange = GROUND_TARGETING_RANGE;
+	float flyingRange = FLYING_TARGETING_RANGE;
 	float minimumAlignment = 0.15f;
 	float alignmentPenalty = 8.0f;
 };
