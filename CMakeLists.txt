@@ -103,6 +103,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
   target_include_directories(game_save_tests PRIVATE
       "${CMAKE_SOURCE_DIR}/src")
   add_test(NAME pokemon_game_save_codec COMMAND game_save_tests)
+
+  add_executable(game_save_storage_tests
+      tests/game_save_storage_test.cpp
+      src/GameSaveStorage.cpp)
+  target_include_directories(game_save_storage_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src")
+  add_test(NAME pokemon_game_save_storage COMMAND game_save_storage_tests)
 endif()
 
 # We don't really need to include header and resource files to build, but it's
