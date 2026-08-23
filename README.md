@@ -124,9 +124,10 @@ with the asset.
 
 ## Controls
 
-- `W` / `S`: move forward and backward
+- `W` / `S`: accelerate forward and reverse; releasing the keys brakes smoothly
 - `A` / `D`: turn left and right
-- `Q` / `E` or `Space`: move vertically
+- `Q` or `Space`: climb
+- `E`: descend
 - `Z`: toggle gravity and return toward the field
 - `C`: catch the nearest Pokemon in range
 - `R`: restart the research assignment
@@ -135,3 +136,8 @@ with the asset.
 You start with ten Poke Balls. Catch five Pokemon to win; using all ten balls
 before reaching the goal ends the round. The window title shows the current
 progress and the remaining inventory.
+
+Movement uses acceleration, braking, vertical momentum, gravity acceleration,
+and a terminal fall speed. The player has a collision radius at the field edge,
+slides along a blocked axis, lands at ground level without accumulating downward
+velocity, and cannot fly above the world ceiling.

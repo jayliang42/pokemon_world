@@ -65,11 +65,20 @@
       outline: none;
     }
 
-    #status {
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
       min-height: 22px;
       padding: 10px 16px;
       color: #9fb3ce;
       font-size: 0.86rem;
+    }
+
+    #game-status {
+      color: #c9e6ff;
+      text-align: right;
     }
 
     .controls {
@@ -105,6 +114,8 @@
       .badge { display: inline-block; margin-top: 14px; }
       .controls { grid-template-columns: 1fr; }
       #canvas { min-height: 220px; }
+      .status-bar { align-items: flex-start; flex-direction: column; gap: 4px; }
+      #game-status { text-align: left; }
     }
   </style>
 </head>
@@ -120,13 +131,16 @@
 
     <section class="game-card">
       <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
-      <div id="status">Loading the field...</div>
+      <div class="status-bar">
+        <span id="status">Loading the field...</span>
+        <span id="game-status" aria-live="polite">Hover mode · Grounded</span>
+      </div>
     </section>
 
     <section class="controls" aria-label="Game controls">
-      <div class="control"><kbd>W</kbd><kbd>S</kbd> Move forward / backward</div>
+      <div class="control"><kbd>W</kbd><kbd>S</kbd> Accelerate / reverse</div>
       <div class="control"><kbd>A</kbd><kbd>D</kbd> Turn left / right</div>
-      <div class="control"><kbd>Q</kbd><kbd>E</kbd><kbd>Space</kbd> Fly vertically</div>
+      <div class="control"><kbd>Q</kbd><kbd>Space</kbd> Climb · <kbd>E</kbd> Descend</div>
       <div class="control"><kbd>Z</kbd> Toggle gravity</div>
       <div class="control"><kbd>C</kbd> Catch the nearest Pokemon</div>
       <div class="control"><kbd>R</kbd> Restart · <kbd>Esc</kbd> Quit</div>
@@ -135,6 +149,7 @@
 
   <script>
     const statusElement = document.getElementById('status');
+    const gameStatusElement = document.getElementById('game-status');
     var Module = {
       canvas: document.getElementById('canvas'),
       locateFile: function (path) {
@@ -142,6 +157,9 @@
       },
       setStatus: function (text) {
         statusElement.textContent = text || 'Ready';
+      },
+      onGameStatus: function (text) {
+        gameStatusElement.textContent = text || 'Explore the field.';
       },
       print: function (text) {
         console.log(text);

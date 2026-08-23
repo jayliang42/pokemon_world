@@ -19,6 +19,7 @@ Modified by: <Zhisong Liang>
 #include "Program.h"
 #include "MatrixStack.h"
 #include "Pokemon.cpp"
+#include "PlayerController.h"
 
 #include "WindowManager.h"
 #include "Shape.h"
@@ -35,12 +36,6 @@ shared_ptr<Shape> umbreon;
 shared_ptr<Shape> charizard;
 std::vector<std::shared_ptr<Shape>> companionShapes;
 
-constexpr float SPEED = 4.0f;
-constexpr float PLAYER_GROUND_Y = 0.0f;
-constexpr float PLAYER_MAX_ALTITUDE = 32.0f;
-constexpr float PLAYER_BOUNDARY = 48.0f;
-constexpr float VERTICAL_SPEED = 10.0f;
-constexpr float GRAVITY_ACCELERATION = 18.0f;
 constexpr int NUM_POKEMON = 100;
 constexpr int FLYING_POKEMON = NUM_POKEMON / 5;
 constexpr int STARTING_POKEBALLS = 10;
@@ -60,64 +55,68 @@ double get_last_elapsed_time()
 class camera
 {
 public:
-	glm::vec3 pos, rot;
-	glm::mat4 inverseR;
-	int w, a, s, d, q, e, z, x, c, v, b, n, m, space, shift;
-	int gravityFlag = 0;
+	glm::vec3 pos = glm::vec3(0.0f);
+	int w = 0;
+	int a = 0;
+	int s = 0;
+	int d = 0;
+	int q = 0;
+	int e = 0;
+	int space = 0;
+
 	camera()
 	{
-		w = a = s = d = q = e = z = x = c = v = b = n = m = space = shift = 0;
-		pos = rot = glm::vec3(0, 0, 0);
-		inverseR = glm::mat4(1.0f);
+		reset();
 	}
+
 	glm::mat4 process(double ftime)
 	{
-		// Prevent a breakpoint or a minimized window from causing a huge jump.
-		ftime = std::max(0.0, std::min(ftime, 0.05));
-		float forwardStep = 0.0f;
-		if (w == 1)
-		{
-			forwardStep = SPEED * static_cast<float>(ftime);
-		}
-		else if (s == 1)
-		{
-			forwardStep = -SPEED * static_cast<float>(ftime);
-		}
-		float yangle = 0;
-		if (a == 1)
-			yangle = -3 * ftime;
-		else if (d == 1)
-			yangle = 3 * ftime;
-		rot.y += yangle;
-		glm::mat4 R = glm::rotate(glm::mat4(1), rot.y, glm::vec3(0, 1, 0));
-		glm::vec4 horizontalMovement = glm::vec4(0.0f, 0.0f, forwardStep, 0.0f) * R;
-		pos += glm::vec3(horizontalMovement.x, 0.0f, horizontalMovement.z);
+		PlayerInput input;
+		input.forward = static_cast<float>(w - s);
+		input.turn = static_cast<float>(d - a);
+		input.vertical = static_cast<float>(((q == 1 || space == 1) ? 1 : 0) - e);
+		motionEvents_ = controller_.update(input, static_cast<float>(ftime));
 
-		// mypos is the player's world-space position; keep it inside the field.
-		glm::vec3 playerPosition = -pos;
-		float verticalStep = 0.0f;
-		if (q == 1 || space == 1)
-		{
-			verticalStep += VERTICAL_SPEED * static_cast<float>(ftime);
-		}
-		if (e == 1)
-		{
-			verticalStep -= VERTICAL_SPEED * static_cast<float>(ftime);
-		}
-		if (gravityFlag == 1)
-		{
-			verticalStep -= GRAVITY_ACCELERATION * static_cast<float>(ftime);
-		}
-		playerPosition.y += verticalStep;
-		playerPosition.x = std::max(-PLAYER_BOUNDARY, std::min(PLAYER_BOUNDARY, playerPosition.x));
-		playerPosition.y = std::max(PLAYER_GROUND_Y, std::min(PLAYER_MAX_ALTITUDE, playerPosition.y));
-		playerPosition.z = std::max(-PLAYER_BOUNDARY, std::min(PLAYER_BOUNDARY, playerPosition.z));
-		mypos = playerPosition;
-		pos = -playerPosition;
+		mypos = controller_.position();
+		pos = -mypos;
+		glm::mat4 R = glm::rotate(glm::mat4(1.0f), controller_.yaw(), glm::vec3(0, 1, 0));
 		glm::mat4 T = glm::translate(glm::mat4(1), pos + glm::vec3(0, -5, 0));
-		inverseR = inverse(R);
 		return R * T;
 	}
+
+	void reset()
+	{
+		w = a = s = d = q = e = space = 0;
+		controller_.reset();
+		motionEvents_ = PlayerMotionEvents();
+		mypos = controller_.position();
+		pos = -mypos;
+	}
+
+	bool toggleGravity()
+	{
+		controller_.toggleGravity();
+		return controller_.gravityEnabled();
+	}
+
+	bool gravityEnabled() const
+	{
+		return controller_.gravityEnabled();
+	}
+
+	bool grounded() const
+	{
+		return controller_.grounded();
+	}
+
+	const PlayerMotionEvents &motionEvents() const
+	{
+		return motionEvents_;
+	}
+
+private:
+	PlayerController controller_;
+	PlayerMotionEvents motionEvents_;
 };
 
 camera mycam;
@@ -161,7 +160,9 @@ public:
 		std::ostringstream title;
 		title << "Pokemon World | W/S move  A/D turn  Q/E/Space fly  Z toggle gravity  C catch  R reset"
 		      << " | Caught " << caughtCount << "/" << CAPTURE_GOAL
-		      << " | Poke Balls " << pokeballs;
+		      << " | Poke Balls " << pokeballs
+		      << " | " << (mycam.gravityEnabled() ? "Gravity ON" : "Hover mode")
+		      << " | " << (mycam.grounded() ? "Grounded" : "Airborne");
 		if (!statusMessage.empty())
 		{
 			title << " | " << statusMessage;
@@ -173,6 +174,14 @@ public:
 	{
 		statusMessage = message;
 		updateWindowTitle();
+#ifdef __EMSCRIPTEN__
+		EM_ASM({
+			if (Module.onGameStatus)
+			{
+				Module.onGameStatus(UTF8ToString($0));
+			}
+		}, message.c_str());
+#endif
 	}
 
 	void resetGame()
@@ -186,10 +195,7 @@ public:
 			charizards[i] = Pokemon(1, i);
 		}
 
-		mycam.pos = glm::vec3(0.0f);
-		mycam.rot = glm::vec3(0.0f);
-		mycam.gravityFlag = 0;
-		mypos = glm::vec3(0.0f);
+		mycam.reset();
 		caughtCount = 0;
 		pokeballs = STARTING_POKEBALLS;
 		captureRequested = false;
@@ -317,12 +323,9 @@ public:
 		}
 		if (key == GLFW_KEY_Z && action == GLFW_PRESS)
 		{
-			mycam.gravityFlag = mycam.gravityFlag == 0 ? 1 : 0;
-			setStatus(mycam.gravityFlag == 1 ? "Gravity enabled." : "Gravity disabled.");
-		}
-		if (key == GLFW_KEY_Z && action == GLFW_RELEASE)
-		{
-			mycam.z = 0;
+			bool gravityEnabled = mycam.toggleGravity();
+			setStatus(gravityEnabled ? "Gravity enabled: release lift to descend."
+			                         : "Gravity disabled: hover mode active.");
 		}
 		if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
 		{
@@ -835,6 +838,19 @@ public:
 			resetGame();
 		}
 		glm::mat4 playerView = mycam.process(frametime);
+		const PlayerMotionEvents &motionEvents = mycam.motionEvents();
+		if (motionEvents.hitCeiling)
+		{
+			setStatus("Maximum flight altitude reached.");
+		}
+		else if (motionEvents.landed)
+		{
+			setStatus("Landed safely.");
+		}
+		else if (motionEvents.hitBoundary)
+		{
+			setStatus("Field boundary reached.");
+		}
 		if (captureRequested)
 		{
 			captureNearestPokemon();
