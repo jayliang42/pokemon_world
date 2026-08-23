@@ -20,6 +20,7 @@ Modified by: <Zhisong Liang>
 #include "stb_image.h"
 #include "GLSL.h"
 #include "BattleMechanics.h"
+#include "BattleMoveLoadout.h"
 #include "BattleSequence.h"
 #include "CaptureMechanics.h"
 #include "CaptureSequence.h"
@@ -115,22 +116,66 @@ BattleEffectPalette battleEffectPalette(PokemonType type)
 	return {glm::vec3(0.72f), glm::vec3(1.0f)};
 }
 
+float battleMoveVisualScale(BattleMoveId move)
+{
+	switch (move)
+	{
+	case BattleMoveId::Ember:
+		return 0.90f;
+	case BattleMoveId::AirSlash:
+		return 1.08f;
+	case BattleMoveId::Flamethrower:
+		return 1.38f;
+	case BattleMoveId::VineWhip:
+	case BattleMoveId::Bite:
+	case BattleMoveId::WingAttack:
+		return 1.0f;
+	}
+	return 1.0f;
+}
+
+int battleMoveTrailCount(BattleMoveId move)
+{
+	switch (move)
+	{
+	case BattleMoveId::AirSlash:
+		return 3;
+	case BattleMoveId::Flamethrower:
+		return 6;
+	case BattleMoveId::Ember:
+	case BattleMoveId::VineWhip:
+	case BattleMoveId::Bite:
+	case BattleMoveId::WingAttack:
+		return 1;
+	}
+	return 1;
+}
+
 void applyPlayerBattlePose(PokemonAnimationPose &pose,
-	                       const BattleSequenceSample &sample)
+	                       const BattleSequenceSample &sample,
+	                       const BattleMove &move)
 {
 	const float eased = easedBattleProgress(sample.phaseProgress);
+	const bool airSlash = move.id == BattleMoveId::AirSlash;
+	const bool flamethrower = move.id == BattleMoveId::Flamethrower;
 	if (sample.phase == BattlePhase::PlayerWindup)
 	{
-		pose.bodyPitch -= eased * 0.11f;
-		pose.wingAngle *= 0.55f;
-		pose.breathingScale += eased * 0.018f;
+		pose.bodyPitch -= eased * (flamethrower ? 0.17f : 0.11f);
+		pose.wingAngle = airSlash
+		                     ? pose.wingAngle + eased * 0.28f
+		                     : pose.wingAngle * 0.55f;
+		pose.breathingScale += eased * (flamethrower ? 0.032f : 0.018f);
 	}
 	else if (sample.phase == BattlePhase::PlayerProjectile)
 	{
 		const float release = std::sin(sample.phaseProgress * 3.1415926f);
-		pose.bodyPitch -= (1.0f - eased) * 0.11f;
-		pose.bodyBob += release * 0.055f;
-		pose.wingAngle += release * 0.13f;
+		pose.bodyPitch -= (1.0f - eased) * (flamethrower ? 0.17f : 0.11f);
+		pose.bodyBob += release * (airSlash ? 0.09f : 0.055f);
+		pose.wingAngle += release * (airSlash ? 0.38f : 0.13f);
+		if (airSlash)
+		{
+			pose.bodyRoll += std::sin(sample.phaseProgress * 6.2831853f) * 0.10f;
+		}
 	}
 	else if (sample.phase == BattlePhase::PlayerImpact)
 	{
@@ -351,6 +396,7 @@ GLuint rockTex, umbreonTex;
 	BattleDamageResult pendingWildDamage;
 	BattleMove pendingPlayerMove;
 	BattleMove pendingWildMove;
+	BattleMoveLoadout playerMoveLoadout;
 	Pokemon *pendingBattleTarget = nullptr;
 	double battleSequenceStarted = -100.0;
 	BattlePhase lastBattlePhase = BattlePhase::Inactive;
@@ -372,12 +418,13 @@ GLuint rockTex, umbreonTex;
 		}
 
 		std::ostringstream title;
-		title << "Pokemon World | W/S move  A/D turn  Q/E/Space fly  Z gravity  X attack  C catch  R reset"
+		title << "Pokemon World | W/S move  A/D turn  Q/E/Space fly  Z gravity  1/2/3 moves  X attack  C catch  R reset"
 		      << " | Caught " << caughtCount << "/" << CAPTURE_GOAL
 		      << " | Defeated " << defeatedCount
 		      << " | Poke Balls " << pokeballs
 		      << " | HP " << playerHealth << "/"
 		      << battleStatsFor(PokemonSpecies::Charizard).maximumHealth
+		      << " | Move " << playerMoveLoadout.selectedMove().name
 		      << " | " << (mycam.gravityEnabled() ? "Gravity ON" : "Hover mode")
 		      << " | " << (mycam.grounded() ? "Grounded" : "Airborne");
 		if (!statusMessage.empty())
@@ -516,6 +563,7 @@ GLuint rockTex, umbreonTex;
 		pendingCaptureTarget = nullptr;
 		battleSequenceActive = false;
 		pendingBattleTarget = nullptr;
+		playerMoveLoadout.reset();
 		resetConfirmationExpires = -100.0;
 		gameFinished = caughtCount >= CAPTURE_GOAL || playerHealth <= 0 ||
 		               (pokeballs == 0 && caughtCount < CAPTURE_GOAL);
@@ -662,6 +710,7 @@ GLuint rockTex, umbreonTex;
 		targetDamageApplied = false;
 		playerDamageApplied = false;
 		pendingBattleSpecies.clear();
+		playerMoveLoadout.reset();
 		researchProgress = ResearchMissionProgress();
 		resetConfirmationExpires = -100.0;
 		playerAnimationPhase = 0.0f;
@@ -941,7 +990,8 @@ GLuint rockTex, umbreonTex;
 				if (pendingBattleTarget->isFainted())
 				{
 					++defeatedCount;
-					setStatus(pendingBattleSpecies + " fainted from Ember!");
+					setStatus(pendingBattleSpecies + " fainted from " +
+					          pendingPlayerMove.name + "!");
 				}
 				else
 				{
@@ -990,6 +1040,29 @@ GLuint rockTex, umbreonTex;
 		}
 	}
 
+	void selectPlayerMove(int slot)
+	{
+		if (!playerMoveLoadout.selectSlot(slot))
+		{
+			return;
+		}
+		const BattleMove &move = playerMoveLoadout.selectedMove();
+		const double remaining = playerMoveLoadout.cooldownRemaining(
+			slot, glfwGetTime());
+		std::ostringstream message;
+		message << "Selected " << move.name << ". ";
+		if (remaining > 0.0)
+		{
+			message << std::fixed << std::setprecision(1) << remaining
+			        << "s until ready.";
+		}
+		else
+		{
+			message << "Ready to use.";
+		}
+		setStatus(message.str());
+	}
+
 	void attackTargetedPokemon()
 	{
 		if (captureSequenceActive || battleSequenceActive)
@@ -1001,16 +1074,33 @@ GLuint rockTex, umbreonTex;
 		{
 			return;
 		}
+		const double now = glfwGetTime();
+		const BattleMove &selectedMove = playerMoveLoadout.selectedMove();
+		const double cooldownRemaining = playerMoveLoadout.cooldownRemaining(
+			playerMoveLoadout.selectedSlot(), now);
+		if (cooldownRemaining > 0.0)
+		{
+			std::ostringstream message;
+			message << selectedMove.name << " is recharging for " << std::fixed
+			        << std::setprecision(1) << cooldownRemaining << "s.";
+			setStatus(message.str());
+			return;
+		}
 		Pokemon *target = targetedPokemon();
 		if (!target)
 		{
 			setStatus("No battle target. Face a Pokemon inside the lock-on range.");
 			return;
 		}
+		if (!playerMoveLoadout.consumeSelected(now))
+		{
+			setStatus("The selected move is not ready yet.");
+			return;
+		}
 
 		pendingBattleTarget = target;
 		pendingBattleSpecies = pokemonSpeciesName(target->getSpecies());
-		pendingPlayerMove = playerBattleMove();
+		pendingPlayerMove = selectedMove;
 		pendingWildMove = wildBattleMoveFor(target->getSpecies());
 		pendingPlayerDamage = resolveBattleDamage(
 			PokemonSpecies::Charizard, target->getSpecies(), pendingPlayerMove);
@@ -1019,7 +1109,7 @@ GLuint rockTex, umbreonTex;
 		pendingBattlePlan.counterEnabled =
 			target->getHealth() > pendingPlayerDamage.amount;
 		battleSequenceActive = true;
-		battleSequenceStarted = glfwGetTime();
+		battleSequenceStarted = now;
 		lastBattlePhase = BattlePhase::PlayerWindup;
 		targetDamageApplied = false;
 		playerDamageApplied = false;
@@ -1031,7 +1121,8 @@ GLuint rockTex, umbreonTex;
 		battleTargetPosition.y += target->isFlying() ? 0.0f : 0.52f;
 		battlePlayerHitPosition = mypos + glm::vec3(0.0f, 0.82f, 0.0f);
 		currentTarget = PokemonTargetSelection();
-		setStatus("Charizard readies Ember against " + pendingBattleSpecies + ".");
+		setStatus("Charizard readies " + std::string(pendingPlayerMove.name) +
+		          " against " + pendingBattleSpecies + ".");
 	}
 
 	void updatePokemonAgents(double deltaSeconds, double now)
@@ -1514,6 +1605,10 @@ GLuint rockTex, umbreonTex;
 		if (key == GLFW_KEY_X && action == GLFW_PRESS)
 		{
 			attackRequested = true;
+		}
+		if (key >= GLFW_KEY_1 && key <= GLFW_KEY_3 && action == GLFW_PRESS)
+		{
+			selectPlayerMove(key - GLFW_KEY_1);
 		}
 		if (key == GLFW_KEY_R && action == GLFW_PRESS)
 		{
@@ -2211,7 +2306,8 @@ GLuint rockTex, umbreonTex;
 			currentBattleSample(captureRenderNow);
 		if (battleSequenceActive)
 		{
-			applyPlayerBattlePose(playerPose, battleVisualSample);
+			applyPlayerBattlePose(playerPose, battleVisualSample,
+			                      pendingPlayerMove);
 		}
 
 		// Keep the sky centered on the camera and let only its orientation follow
@@ -2383,6 +2479,8 @@ GLuint rockTex, umbreonTex;
 				battleEffectPalette(pendingPlayerMove.type);
 			const BattleEffectPalette wildPalette =
 				battleEffectPalette(pendingWildMove.type);
+			const float playerVisualScale =
+				battleMoveVisualScale(pendingPlayerMove.id);
 			glm::vec3 playerRingPosition(
 				mypos.x, terrainHeightMap.heightAt(mypos.x, mypos.z) + 0.055f,
 				mypos.z);
@@ -2401,13 +2499,15 @@ GLuint rockTex, umbreonTex;
 			{
 				const float progress = easedBattleProgress(
 					battleVisualSample.phaseProgress);
-				drawTargetRing(playerRingPosition, 0.72f + progress * 0.64f,
+				drawTargetRing(playerRingPosition,
+				               (0.72f + progress * 0.64f) * playerVisualScale,
 				               playerPalette.effectColor, 0.28f + progress * 0.32f);
 			}
 			else if (battleVisualSample.phase == BattlePhase::TargetImpact)
 			{
 				const float progress = battleVisualSample.phaseProgress;
-				drawTargetRing(targetRingPosition, 0.86f + progress * 2.65f,
+				drawTargetRing(targetRingPosition,
+				               (0.86f + progress * 2.65f) * playerVisualScale,
 				               playerPalette.effectColor,
 				               (1.0f - progress) * 0.86f);
 			}
@@ -2685,6 +2785,8 @@ GLuint rockTex, umbreonTex;
 				battleEffectPalette(pendingPlayerMove.type);
 			const BattleEffectPalette wildPalette =
 				battleEffectPalette(pendingWildMove.type);
+			const float playerVisualScale =
+				battleMoveVisualScale(pendingPlayerMove.id);
 			const float visualTime = static_cast<float>(captureRenderNow);
 			const float pulse = 0.94f + std::sin(visualTime * 18.0f) * 0.06f;
 
@@ -2722,21 +2824,40 @@ GLuint rockTex, umbreonTex;
 			{
 				const float progress = easedBattleProgress(
 					battleVisualSample.phaseProgress);
-				drawBattleOrb(battlePlayerOrigin, (0.11f + progress * 0.13f) * pulse,
+				drawBattleOrb(battlePlayerOrigin,
+				              (0.11f + progress * 0.13f) * pulse * playerVisualScale,
 				              playerPalette, 0.78f, 0.06f);
 			}
 			else if (battleVisualSample.phase == BattlePhase::PlayerProjectile)
 			{
-				const glm::vec3 position = battleProjectilePosition(
-					battlePlayerOrigin, battleTargetPosition,
-					battleVisualSample.phaseProgress);
-				drawBattleOrb(position, 0.245f * pulse, playerPalette, 0.92f, 0.05f);
+				const int trailCount = battleMoveTrailCount(pendingPlayerMove.id);
+				for (int trailIndex = trailCount - 1; trailIndex >= 0; --trailIndex)
+				{
+					const float delayedProgress = glm::clamp(
+						battleVisualSample.phaseProgress -
+						    static_cast<float>(trailIndex) * 0.055f,
+						0.0f, 1.0f);
+					if (trailIndex > 0 && delayedProgress <= 0.0f)
+					{
+						continue;
+					}
+					const glm::vec3 position = battleProjectilePosition(
+						battlePlayerOrigin, battleTargetPosition, delayedProgress);
+					const float trailScale =
+						1.0f - static_cast<float>(trailIndex) * 0.09f;
+					const float trailOpacity =
+						0.92f - static_cast<float>(trailIndex) * 0.10f;
+					drawBattleOrb(position,
+					              0.245f * pulse * playerVisualScale * trailScale,
+					              playerPalette, trailOpacity, 0.05f);
+				}
 			}
 			else if (battleVisualSample.phase == BattlePhase::TargetImpact)
 			{
 				const float progress = easedBattleProgress(
 					battleVisualSample.phaseProgress);
-				drawBattleOrb(battleTargetPosition, 0.30f + progress * 0.74f,
+				drawBattleOrb(battleTargetPosition,
+				              (0.30f + progress * 0.74f) * playerVisualScale,
 				              playerPalette, (1.0f - progress) * 0.82f, 0.92f);
 			}
 			else if (battleVisualSample.phase == BattlePhase::WildWindup)
