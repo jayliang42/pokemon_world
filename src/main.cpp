@@ -67,6 +67,98 @@ struct CaptureBallVisualPose
 	float scale = 0.17f;
 };
 
+struct BattleEffectPalette
+{
+	glm::vec3 effectColor;
+	glm::vec3 coreColor;
+};
+
+float easedBattleProgress(float progress)
+{
+	const float clamped = glm::clamp(progress, 0.0f, 1.0f);
+	return clamped * clamped * (3.0f - 2.0f * clamped);
+}
+
+glm::vec3 battleProjectilePosition(const glm::vec3 &start,
+	                               const glm::vec3 &end, float progress)
+{
+	const float eased = easedBattleProgress(progress);
+	const float distance = glm::length(end - start);
+	const float arcHeight = glm::clamp(distance * 0.055f, 0.32f, 0.92f);
+	return glm::mix(start, end, eased) +
+	       glm::vec3(0.0f, std::sin(eased * 3.1415926f) * arcHeight, 0.0f);
+}
+
+BattleEffectPalette battleEffectPalette(PokemonType type)
+{
+	switch (type)
+	{
+	case PokemonType::Fire:
+		return {glm::vec3(1.0f, 0.18f, 0.015f),
+		        glm::vec3(1.0f, 0.86f, 0.18f)};
+	case PokemonType::Grass:
+		return {glm::vec3(0.10f, 0.74f, 0.20f),
+		        glm::vec3(0.72f, 1.0f, 0.30f)};
+	case PokemonType::Flying:
+		return {glm::vec3(0.12f, 0.62f, 1.0f),
+		        glm::vec3(0.78f, 0.96f, 1.0f)};
+	case PokemonType::Dark:
+		return {glm::vec3(0.42f, 0.10f, 0.72f),
+		        glm::vec3(1.0f, 0.38f, 0.82f)};
+	case PokemonType::Normal:
+		return {glm::vec3(0.72f, 0.78f, 0.86f),
+		        glm::vec3(1.0f)};
+	}
+	return {glm::vec3(0.72f), glm::vec3(1.0f)};
+}
+
+void applyPlayerBattlePose(PokemonAnimationPose &pose,
+	                       const BattleSequenceSample &sample)
+{
+	const float eased = easedBattleProgress(sample.phaseProgress);
+	if (sample.phase == BattlePhase::PlayerWindup)
+	{
+		pose.bodyPitch -= eased * 0.11f;
+		pose.wingAngle *= 0.55f;
+		pose.breathingScale += eased * 0.018f;
+	}
+	else if (sample.phase == BattlePhase::PlayerProjectile)
+	{
+		const float release = std::sin(sample.phaseProgress * 3.1415926f);
+		pose.bodyPitch -= (1.0f - eased) * 0.11f;
+		pose.bodyBob += release * 0.055f;
+		pose.wingAngle += release * 0.13f;
+	}
+	else if (sample.phase == BattlePhase::PlayerImpact)
+	{
+		const float recoil = std::sin(sample.phaseProgress * 3.1415926f);
+		pose.bodyPitch += recoil * 0.11f;
+		pose.bodyRoll += recoil * 0.16f;
+	}
+}
+
+void applyWildBattlePose(PokemonAnimationPose &pose,
+	                     const BattleSequenceSample &sample)
+{
+	const float eased = easedBattleProgress(sample.phaseProgress);
+	if (sample.phase == BattlePhase::TargetImpact)
+	{
+		const float recoil = std::sin(sample.phaseProgress * 3.1415926f);
+		pose.bodyPitch += recoil * 0.13f;
+		pose.bodyRoll -= recoil * 0.19f;
+		pose.bodyBob += recoil * 0.08f;
+	}
+	else if (sample.phase == BattlePhase::WildWindup)
+	{
+		pose.bodyPitch -= eased * 0.10f;
+		pose.breathingScale += eased * 0.022f;
+	}
+	else if (sample.phase == BattlePhase::WildProjectile)
+	{
+		pose.bodyPitch -= (1.0f - eased) * 0.10f;
+	}
+}
+
 const std::array<RockPlacement, 10> ROCK_PLACEMENTS = {{
 	{glm::vec2(5.0f, -7.0f), glm::vec3(1.0f, 0.70f, 0.85f), 0.25f},
 	{glm::vec2(-7.0f, -10.0f), glm::vec3(0.8f, 0.90f, 0.75f), -0.4f},
@@ -202,7 +294,7 @@ public:
 
 	// Our shader program
 	std::shared_ptr<Program> prog, prog2, heightshader, pokemon, pokemon2,
-	                         targetshader, pokeballShader;
+	                         targetshader, pokeballShader, battleEffectShader;
 
 	// Contains vertex information for OpenGL
 	GLuint VertexArrayID, VertexArrayID2;
@@ -1746,6 +1838,29 @@ GLuint rockTex, umbreonTex;
 		pokeballShader->addAttribute("vertPos");
 		pokeballShader->addAttribute("vertNor");
 		pokeballShader->addAttribute("vertTex");
+
+		battleEffectShader = std::make_shared<Program>();
+		battleEffectShader->setVerbose(true);
+		battleEffectShader->setShaderNames(
+			resourceDirectory + "/battle_effect_vertex.glsl",
+			resourceDirectory + "/battle_effect_frag.glsl");
+		if (!battleEffectShader->init())
+		{
+			std::cerr << "Battle effect shaders failed to compile... exiting!"
+			          << std::endl;
+			exit(1);
+		}
+		battleEffectShader->addUniform("P");
+		battleEffectShader->addUniform("V");
+		battleEffectShader->addUniform("M");
+		battleEffectShader->addUniform("time");
+		battleEffectShader->addUniform("effectColor");
+		battleEffectShader->addUniform("coreColor");
+		battleEffectShader->addUniform("opacity");
+		battleEffectShader->addUniform("shellAmount");
+		battleEffectShader->addAttribute("vertPos");
+		battleEffectShader->addAttribute("vertNor");
+		battleEffectShader->addAttribute("vertTex");
 	}
 
 	/****DRAW
@@ -1808,7 +1923,7 @@ GLuint rockTex, umbreonTex;
 			glm::clamp(playerVelocity.y / 9.0f, -1.0f, 1.0f);
 		playerAnimationInput.turnRatio = mycam.turnRatio();
 		playerAnimationInput.phase = playerAnimationPhase;
-		const PokemonAnimationPose playerPose =
+		PokemonAnimationPose playerPose =
 			samplePokemonAnimation(playerAnimationInput);
 		const PlayerMotionEvents &motionEvents = mycam.motionEvents();
 		if (motionEvents.hitCeiling)
@@ -1846,6 +1961,12 @@ GLuint rockTex, umbreonTex;
 		const double captureRenderNow = glfwGetTime();
 		const CaptureSequenceSample captureVisualSample =
 			currentCaptureSample(captureRenderNow);
+		const BattleSequenceSample battleVisualSample =
+			currentBattleSample(captureRenderNow);
+		if (battleSequenceActive)
+		{
+			applyPlayerBattlePose(playerPose, battleVisualSample);
+		}
 
 		// Keep the sky centered on the camera and let only its orientation follow
 		// the player's view. Cloud motion is handled slowly in the sky shader.
@@ -2009,6 +2130,55 @@ GLuint rockTex, umbreonTex;
 			const float targetDiameter = currentTarget.flying ? 3.2f : 2.35f;
 			drawTargetRing(targetPosition, targetDiameter,
 			               glm::vec3(0.18f, 0.82f, 1.0f), 0.88f);
+		}
+		if (battleSequenceActive)
+		{
+			const BattleEffectPalette playerPalette =
+				battleEffectPalette(pendingPlayerMove.type);
+			const BattleEffectPalette wildPalette =
+				battleEffectPalette(pendingWildMove.type);
+			glm::vec3 playerRingPosition(
+				mypos.x, terrainHeightMap.heightAt(mypos.x, mypos.z) + 0.055f,
+				mypos.z);
+			glm::vec3 targetRingPosition = battleTargetPosition;
+			if (pendingBattleTarget && pendingBattleTarget->isFlying())
+			{
+				targetRingPosition.y -= 0.72f;
+			}
+			else
+			{
+				targetRingPosition.y = terrainHeightMap.heightAt(
+					targetRingPosition.x, targetRingPosition.z) + 0.055f;
+			}
+
+			if (battleVisualSample.phase == BattlePhase::PlayerWindup)
+			{
+				const float progress = easedBattleProgress(
+					battleVisualSample.phaseProgress);
+				drawTargetRing(playerRingPosition, 0.72f + progress * 0.64f,
+				               playerPalette.effectColor, 0.28f + progress * 0.32f);
+			}
+			else if (battleVisualSample.phase == BattlePhase::TargetImpact)
+			{
+				const float progress = battleVisualSample.phaseProgress;
+				drawTargetRing(targetRingPosition, 0.86f + progress * 2.65f,
+				               playerPalette.effectColor,
+				               (1.0f - progress) * 0.86f);
+			}
+			else if (battleVisualSample.phase == BattlePhase::WildWindup)
+			{
+				const float progress = easedBattleProgress(
+					battleVisualSample.phaseProgress);
+				drawTargetRing(targetRingPosition, 0.82f + progress * 0.74f,
+				               wildPalette.effectColor, 0.25f + progress * 0.38f);
+			}
+			else if (battleVisualSample.phase == BattlePhase::PlayerImpact)
+			{
+				const float progress = battleVisualSample.phaseProgress;
+				drawTargetRing(playerRingPosition, 0.92f + progress * 2.90f,
+				               wildPalette.effectColor,
+				               (1.0f - progress) * 0.82f);
+			}
 		}
 		if (captureSequenceActive && captureVisualSample.ballVisible)
 		{
@@ -2181,7 +2351,11 @@ GLuint rockTex, umbreonTex;
 			animationInput.fleeing = fleeing;
 			animationInput.speedRatio = speedRatio;
 			animationInput.phase = umbreons[i].getMotionPhase();
-			const PokemonAnimationPose pose = samplePokemonAnimation(animationInput);
+			PokemonAnimationPose pose = samplePokemonAnimation(animationInput);
+			if (isPendingBattleTarget(umbreons[i]))
+			{
+				applyWildBattlePose(pose, battleVisualSample);
+			}
 			const bool renderUmbreon =
 				umbreons[i].getSpecies() == PokemonSpecies::Umbreon;
 			const float creatureScale = renderUmbreon ? 0.55f : 0.65f;
@@ -2237,8 +2411,12 @@ GLuint rockTex, umbreonTex;
 			flightAnimationInput.verticalSpeedRatio =
 				glm::clamp(charizards[i].getVelocity().y / 4.8f, -1.0f, 1.0f);
 			flightAnimationInput.phase = charizards[i].getMotionPhase();
-			const PokemonAnimationPose flightPose =
+			PokemonAnimationPose flightPose =
 				samplePokemonAnimation(flightAnimationInput);
+			if (isPendingBattleTarget(charizards[i]))
+			{
+				applyWildBattlePose(flightPose, battleVisualSample);
+			}
 			vec3 flightPosition = charizards[i].getPos();
 			flightPosition.y += flightPose.bodyBob;
 			T = glm::translate(glm::mat4(1.0f), flightPosition);
@@ -2254,6 +2432,94 @@ GLuint rockTex, umbreonTex;
 		}
 
 		pokemon2->unbind();
+
+		if (battleSequenceActive)
+		{
+			const BattleEffectPalette playerPalette =
+				battleEffectPalette(pendingPlayerMove.type);
+			const BattleEffectPalette wildPalette =
+				battleEffectPalette(pendingWildMove.type);
+			const float visualTime = static_cast<float>(captureRenderNow);
+			const float pulse = 0.94f + std::sin(visualTime * 18.0f) * 0.06f;
+
+			battleEffectShader->bind();
+			glUniformMatrix4fv(battleEffectShader->getUniform("P"), 1, GL_FALSE,
+			                   &P[0][0]);
+			glUniformMatrix4fv(battleEffectShader->getUniform("V"), 1, GL_FALSE,
+			                   &playerView[0][0]);
+			glUniform1f(battleEffectShader->getUniform("time"), visualTime);
+			glDepthMask(GL_FALSE);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+
+			auto drawBattleOrb = [&](const glm::vec3 &position, float orbScale,
+			                         const BattleEffectPalette &palette,
+			                         float opacity, float shellAmount) {
+				const glm::mat4 translation =
+					glm::translate(glm::mat4(1.0f), position);
+				const glm::mat4 scale = glm::scale(
+					glm::mat4(1.0f), glm::vec3(std::max(0.01f, orbScale)));
+				const glm::mat4 model = translation * scale;
+				glUniformMatrix4fv(battleEffectShader->getUniform("M"), 1,
+				                   GL_FALSE, &model[0][0]);
+				glUniform3fv(battleEffectShader->getUniform("effectColor"), 1,
+				             &palette.effectColor[0]);
+				glUniform3fv(battleEffectShader->getUniform("coreColor"), 1,
+				             &palette.coreColor[0]);
+				glUniform1f(battleEffectShader->getUniform("opacity"),
+				            glm::clamp(opacity, 0.0f, 1.0f));
+				glUniform1f(battleEffectShader->getUniform("shellAmount"),
+				            glm::clamp(shellAmount, 0.0f, 1.0f));
+				shape->draw(battleEffectShader, false);
+			};
+
+			if (battleVisualSample.phase == BattlePhase::PlayerWindup)
+			{
+				const float progress = easedBattleProgress(
+					battleVisualSample.phaseProgress);
+				drawBattleOrb(battlePlayerOrigin, (0.11f + progress * 0.13f) * pulse,
+				              playerPalette, 0.78f, 0.06f);
+			}
+			else if (battleVisualSample.phase == BattlePhase::PlayerProjectile)
+			{
+				const glm::vec3 position = battleProjectilePosition(
+					battlePlayerOrigin, battleTargetPosition,
+					battleVisualSample.phaseProgress);
+				drawBattleOrb(position, 0.245f * pulse, playerPalette, 0.92f, 0.05f);
+			}
+			else if (battleVisualSample.phase == BattlePhase::TargetImpact)
+			{
+				const float progress = easedBattleProgress(
+					battleVisualSample.phaseProgress);
+				drawBattleOrb(battleTargetPosition, 0.30f + progress * 0.74f,
+				              playerPalette, (1.0f - progress) * 0.82f, 0.92f);
+			}
+			else if (battleVisualSample.phase == BattlePhase::WildWindup)
+			{
+				const float progress = easedBattleProgress(
+					battleVisualSample.phaseProgress);
+				drawBattleOrb(battleTargetPosition,
+				              (0.10f + progress * 0.14f) * pulse, wildPalette,
+				              0.76f, 0.08f);
+			}
+			else if (battleVisualSample.phase == BattlePhase::WildProjectile)
+			{
+				const glm::vec3 position = battleProjectilePosition(
+					battleTargetPosition, battlePlayerHitPosition,
+					battleVisualSample.phaseProgress);
+				drawBattleOrb(position, 0.225f * pulse, wildPalette, 0.90f, 0.08f);
+			}
+			else if (battleVisualSample.phase == BattlePhase::PlayerImpact)
+			{
+				const float progress = easedBattleProgress(
+					battleVisualSample.phaseProgress);
+				drawBattleOrb(battlePlayerHitPosition, 0.28f + progress * 0.68f,
+				              wildPalette, (1.0f - progress) * 0.78f, 0.94f);
+			}
+
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glDepthMask(GL_TRUE);
+			battleEffectShader->unbind();
+		}
 	}
 
 	void frame()
