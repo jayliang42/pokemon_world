@@ -67,6 +67,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
   target_include_directories(capture_mechanics_tests PRIVATE
       "${CMAKE_SOURCE_DIR}/src")
   add_test(NAME pokemon_capture_mechanics COMMAND capture_mechanics_tests)
+
+  add_executable(capture_sequence_tests
+      tests/capture_sequence_test.cpp
+      src/CaptureSequence.cpp)
+  target_include_directories(capture_sequence_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src")
+  add_test(NAME pokemon_capture_sequence COMMAND capture_sequence_tests)
 endif()
 
 # We don't really need to include header and resource files to build, but it's
