@@ -39,6 +39,7 @@ using namespace std;
 using namespace glm;
 shared_ptr<Shape> shape;
 shared_ptr<Shape> umbreon;
+shared_ptr<Shape> bulbasaur;
 shared_ptr<Shape> charizard;
 std::vector<std::shared_ptr<Shape>> companionShapes;
 
@@ -202,6 +203,13 @@ public:
 	// texture data
 GLuint Texture, grassTexture, HeightTex, PokeballTex, fireTex, Texture5;
 GLuint grayTex, rockTex, umbreonTex;
+	GLuint bulbasaurBodyTex = 0;
+	GLuint bulbasaurSpotTex = 0;
+	GLuint bulbasaurBulbTex = 0;
+	GLuint bulbasaurLeafTex = 0;
+	GLuint bulbasaurEyeWhiteTex = 0;
+	GLuint bulbasaurEyeRedTex = 0;
+	GLuint bulbasaurEyeDarkTex = 0;
 	TerrainHeightMap terrainHeightMap;
 	std::string resourceDirectory;
 	int caughtCount = 0;
@@ -282,6 +290,23 @@ GLuint grayTex, rockTex, umbreonTex;
 		glUniform1f(program->getUniform("wingAngle"), pose.wingAngle);
 		glUniform1f(program->getUniform("tailAngle"), pose.tailAngle);
 		glUniform1f(program->getUniform("breathingScale"), pose.breathingScale);
+	}
+
+	GLuint createSolidTexture(unsigned char red, unsigned char green,
+	                         unsigned char blue)
+	{
+		const unsigned char pixel[] = {red, green, blue, 255};
+		GLuint texture = 0;
+		glGenTextures(1, &texture);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, texture);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA,
+		             GL_UNSIGNED_BYTE, pixel);
+		return texture;
 	}
 
 	void resetGame()
@@ -504,6 +529,68 @@ GLuint grayTex, rockTex, umbreonTex;
 			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE,
 			                   &modelMatrix[0][0]);
 			creature->drawPart(pokemon2, partIndex, useExternalTextures);
+		}
+	}
+
+	GLuint bulbasaurTextureForPart(const std::string &partName) const
+	{
+		if (partName.find("bulb-main") != std::string::npos)
+		{
+			return bulbasaurBulbTex;
+		}
+		if (partName.find("bulb-leaves") != std::string::npos)
+		{
+			return bulbasaurLeafTex;
+		}
+		if (partName.find("spots") != std::string::npos)
+		{
+			return bulbasaurSpotTex;
+		}
+		if (partName.find("eye-white") != std::string::npos ||
+		    partName.find("eye-highlight") != std::string::npos)
+		{
+			return bulbasaurEyeWhiteTex;
+		}
+		if (partName.find("eye-iris") != std::string::npos)
+		{
+			return bulbasaurEyeRedTex;
+		}
+		if (partName.find("eye-dark") != std::string::npos)
+		{
+			return bulbasaurEyeDarkTex;
+		}
+		return bulbasaurBodyTex;
+	}
+
+	void drawBulbasaur(const glm::mat4 &rootTransform,
+	                  const PokemonAnimationPose &pose)
+	{
+		for (int partIndex = 0; partIndex < bulbasaur->partCount(); ++partIndex)
+		{
+			const Shape::PartInfo &part = bulbasaur->partInfo(partIndex);
+			PokemonPartAnimation animation =
+				samplePokemonPartAnimation(part.name, pose);
+			if (part.name.find("bulb-") != std::string::npos)
+			{
+				animation.yaw += pose.tailAngle * 0.45f;
+				animation.roll += pose.strideAngle * 0.025f;
+			}
+
+			const glm::vec3 pivot = articulatedPartPivot(part);
+			glm::mat4 local = glm::translate(glm::mat4(1.0f), pivot);
+			local = local * glm::rotate(glm::mat4(1.0f), animation.pitch,
+			                           glm::vec3(1.0f, 0.0f, 0.0f));
+			local = local * glm::rotate(glm::mat4(1.0f), animation.yaw,
+			                           glm::vec3(0.0f, 1.0f, 0.0f));
+			local = local * glm::rotate(glm::mat4(1.0f), animation.roll,
+			                           glm::vec3(0.0f, 0.0f, 1.0f));
+			local = local * glm::translate(glm::mat4(1.0f), -pivot);
+			const glm::mat4 modelMatrix = rootTransform * local;
+			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE,
+			                   &modelMatrix[0][0]);
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, bulbasaurTextureForPart(part.name));
+			bulbasaur->drawPart(pokemon2, partIndex, true);
 		}
 	}
 
@@ -793,6 +880,24 @@ GLuint grayTex, rockTex, umbreonTex;
 		umbreon->loadMesh(resourceDirectory + "/pokemon/umbreon.obj");
 		umbreon->resize();
 		umbreon->init();
+
+		bulbasaur = make_shared<Shape>();
+		bulbasaur->loadMesh(resourceDirectory + "/pokemon/bulbasaur.obj");
+		if (bulbasaur->partCount() < 8)
+		{
+			std::cerr << "Unable to load the articulated Bulbasaur model." << std::endl;
+			exit(1);
+		}
+		bulbasaur->resize();
+		bulbasaur->init();
+
+		bulbasaurBodyTex = createSolidTexture(73, 177, 158);
+		bulbasaurSpotTex = createSolidTexture(38, 119, 106);
+		bulbasaurBulbTex = createSolidTexture(49, 126, 63);
+		bulbasaurLeafTex = createSolidTexture(94, 173, 76);
+		bulbasaurEyeWhiteTex = createSolidTexture(239, 244, 226);
+		bulbasaurEyeRedTex = createSolidTexture(186, 48, 58);
+		bulbasaurEyeDarkTex = createSolidTexture(42, 31, 43);
 
 		string str1 = resourceDirectory + "/pokemon";
 		charizard = make_shared<Shape>();
@@ -1380,9 +1485,7 @@ GLuint grayTex, rockTex, umbreonTex;
 		}
 		glUniform1f(pokemon2->getUniform("surfaceDeform"), 0.0f);
 
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, grayTex);
-		// umbreon
+		// Ground Pokemon
 		for (int i = 0; i < NUM_POKEMON; i++)
 		{
 			// if flag been caught, then don't draw, if too far, don't draw
@@ -1405,12 +1508,10 @@ GLuint grayTex, rockTex, umbreonTex;
 			animationInput.speedRatio = speedRatio;
 			animationInput.phase = umbreons[i].getMotionPhase();
 			const PokemonAnimationPose pose = samplePokemonAnimation(animationInput);
-			const bool renderUmbreon = companionShapes.empty() || i % 5 == 0;
-			shared_ptr<Shape> wildShape = renderUmbreon
-				? umbreon
-				: companionShapes[static_cast<size_t>(i) % companionShapes.size()];
-			const float creatureScale = renderUmbreon ? 0.55f : 0.34f;
-			const float groundOffset = renderUmbreon ? 0.34f : 0.2f;
+			const bool renderUmbreon =
+				umbreons[i].getSpecies() == PokemonSpecies::Umbreon;
+			const float creatureScale = renderUmbreon ? 0.55f : 0.65f;
+			const float groundOffset = renderUmbreon ? 0.34f : 0.47f;
 			vec3 wildPosition = umbreons[i].getPos();
 			wildPosition.y = terrainHeightMap.heightAt(wildPosition.x, wildPosition.z) +
 			                 groundOffset + pose.bodyBob;
@@ -1427,8 +1528,12 @@ GLuint grayTex, rockTex, umbreonTex;
 			{
 				glActiveTexture(GL_TEXTURE0);
 				glBindTexture(GL_TEXTURE_2D, umbreonTex);
+				drawArticulatedShape(umbreon, creatureRoot, pose, true);
 			}
-			drawArticulatedShape(wildShape, creatureRoot, pose, renderUmbreon);
+			else
+			{
+				drawBulbasaur(creatureRoot, pose);
+			}
 		}
 
 		S = glm::scale(glm::mat4(1.0f), glm::vec3(1.6f, 1.6f, 1.6f));
