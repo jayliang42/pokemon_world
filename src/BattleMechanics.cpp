@@ -1,0 +1,102 @@
+#include "BattleMechanics.h"
+
+#include <algorithm>
+#include <cmath>
+
+BattleStats battleStatsFor(PokemonSpecies species)
+{
+	switch (species)
+	{
+	case PokemonSpecies::Umbreon:
+		return {96, 65, 110};
+	case PokemonSpecies::Bulbasaur:
+		return {82, 49, 49};
+	case PokemonSpecies::Charizard:
+		return {118, 84, 78};
+	}
+	return BattleStats();
+}
+
+BattleMove playerBattleMove()
+{
+	return {BattleMoveId::Ember, "Ember", PokemonType::Fire, 28};
+}
+
+BattleMove wildBattleMoveFor(PokemonSpecies species)
+{
+	switch (species)
+	{
+	case PokemonSpecies::Umbreon:
+		return {BattleMoveId::Bite, "Bite", PokemonType::Dark, 24};
+	case PokemonSpecies::Bulbasaur:
+		return {BattleMoveId::VineWhip, "Vine Whip", PokemonType::Grass, 26};
+	case PokemonSpecies::Charizard:
+		return {BattleMoveId::WingAttack, "Wing Attack", PokemonType::Flying, 30};
+	}
+	return BattleMove();
+}
+
+float battleTypeEffectiveness(PokemonType attackType,
+	                          PokemonSpecies defenderSpecies)
+{
+	if (defenderSpecies == PokemonSpecies::Bulbasaur)
+	{
+		if (attackType == PokemonType::Fire || attackType == PokemonType::Flying)
+		{
+			return 2.0f;
+		}
+		if (attackType == PokemonType::Grass)
+		{
+			return 0.5f;
+		}
+	}
+	else if (defenderSpecies == PokemonSpecies::Charizard)
+	{
+		if (attackType == PokemonType::Fire || attackType == PokemonType::Grass)
+		{
+			return 0.5f;
+		}
+	}
+	else if (defenderSpecies == PokemonSpecies::Umbreon &&
+	         attackType == PokemonType::Dark)
+	{
+		return 0.5f;
+	}
+	return 1.0f;
+}
+
+bool moveMatchesSpecies(PokemonType moveType, PokemonSpecies species)
+{
+	switch (species)
+	{
+	case PokemonSpecies::Umbreon:
+		return moveType == PokemonType::Dark;
+	case PokemonSpecies::Bulbasaur:
+		return moveType == PokemonType::Grass;
+	case PokemonSpecies::Charizard:
+		return moveType == PokemonType::Fire || moveType == PokemonType::Flying;
+	}
+	return false;
+}
+
+BattleDamageResult resolveBattleDamage(PokemonSpecies attackerSpecies,
+	                                    PokemonSpecies defenderSpecies,
+	                                    const BattleMove &move)
+{
+	const BattleStats attacker = battleStatsFor(attackerSpecies);
+	const BattleStats defender = battleStatsFor(defenderSpecies);
+	BattleDamageResult result;
+	result.effectiveness = battleTypeEffectiveness(move.type, defenderSpecies);
+	result.sameTypeBonus = moveMatchesSpecies(move.type, attackerSpecies);
+	const float safeDefense = static_cast<float>(std::max(1, defender.defense));
+	const float baseDamage = 2.0f +
+	                         static_cast<float>(std::max(1, move.power)) *
+	                             static_cast<float>(std::max(1, attacker.attack)) /
+	                             safeDefense * 0.45f;
+	const float sameTypeMultiplier = result.sameTypeBonus ? 1.2f : 1.0f;
+	result.amount = std::max(
+		1, static_cast<int>(std::round(baseDamage * sameTypeMultiplier *
+		                               result.effectiveness)));
+	return result;
+}
+
