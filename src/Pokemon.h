@@ -22,6 +22,7 @@ public:
 	void update(double deltaSeconds);
 	void update(double deltaSeconds, const glm::vec3 &playerPosition);
 	void setCaught(int flag);
+	void startle();
 	void setDestination(float x, float y, float z);
 	void setPosition(const glm::vec3 &position);
 

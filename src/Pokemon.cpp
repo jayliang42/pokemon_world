@@ -130,6 +130,16 @@ void Pokemon::setCaught(int flag)
 	}
 }
 
+void Pokemon::startle()
+{
+	if (caught_)
+	{
+		return;
+	}
+	enterFlee();
+	stateTimer_ = 1.5f;
+}
+
 void Pokemon::setDestination(float x, float y, float z)
 {
 	destination_.x = clampValue(x, -FIELD_LIMIT, FIELD_LIMIT);

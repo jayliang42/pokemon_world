@@ -85,6 +85,23 @@ void testNearbyPlayerTriggersSmoothFleeMotion()
 	           "flee speed remains under its configured cap");
 }
 
+void testStartleForcesAFieldPokemonToFlee()
+{
+	Pokemon pokemon(1, 2, 99u);
+	pokemon.setPosition(glm::vec3(0.0f, 20.0f, -20.0f));
+	pokemon.startle();
+	expectTrue(pokemon.getBehaviorState() == PokemonBehaviorState::Flee,
+	           "capture failure can startle a distant Pokemon into fleeing");
+	pokemon.update(0.05, glm::vec3(0.0f));
+	expectTrue(glm::length(pokemon.getVelocity()) > 0.0f,
+	           "a startled Pokemon accelerates away from the player");
+
+	pokemon.setCaught(1);
+	pokemon.startle();
+	expectTrue(pokemon.getCaught() == 1,
+	           "startle does not revive an already captured Pokemon");
+}
+
 void testFleeStateReturnsToWanderAfterReachingSafety()
 {
 	Pokemon pokemon(0, 3, 123u);
@@ -220,6 +237,7 @@ int main()
 	testDeterministicSpawnAvoidsPlayerAndFieldEdge();
 	testPokemonSpeciesAssignmentIsStable();
 	testNearbyPlayerTriggersSmoothFleeMotion();
+	testStartleForcesAFieldPokemonToFlee();
 	testFleeStateReturnsToWanderAfterReachingSafety();
 	testLargeFrameIsClampedAndCaughtPokemonStops();
 	testFlyingPokemonStaysWithinFlightBand();
