@@ -143,6 +143,80 @@ void testFlightCeilingFollowsLocalTerrainHeight()
 	           "maximum altitude is measured above the local terrain");
 }
 
+void testStaticObstacleStopsAndDebouncesContact()
+{
+	PlayerController player;
+	StaticCollisionCylinder obstacle;
+	obstacle.center = glm::vec2(0.0f, -3.0f);
+	obstacle.radius = 1.0f;
+	obstacle.baseY = 0.0f;
+	obstacle.height = 2.0f;
+	player.setStaticObstacles({obstacle});
+	PlayerInput input;
+	input.forward = 1.0f;
+	int obstacleEvents = 0;
+
+	for (int i = 0; i < 120; ++i)
+	{
+		if (player.update(input, 0.05f).hitObstacle)
+		{
+			++obstacleEvents;
+		}
+	}
+	const float centerDistance = glm::length(glm::vec2(player.position().x,
+	                                                   player.position().z + 3.0f));
+	expectTrue(centerDistance >= 1.7999f,
+	           "player collision radius never penetrates a static obstacle");
+	expectTrue(player.position().z > -1.21f,
+	           "head-on movement stops at the obstacle surface");
+	expectTrue(obstacleEvents == 1, "static obstacle contact is reported once until separation");
+}
+
+void testStaticObstaclePreservesTangentialSliding()
+{
+	PlayerController player;
+	StaticCollisionCylinder obstacle;
+	obstacle.center = glm::vec2(0.0f, -3.0f);
+	obstacle.radius = 1.0f;
+	obstacle.baseY = 0.0f;
+	obstacle.height = 2.0f;
+	player.setStaticObstacles({obstacle});
+	player.reset(glm::vec3(-1.4f, 0.0f, 0.0f), -0.2f);
+	PlayerInput input;
+	input.forward = 1.0f;
+
+	for (int i = 0; i < 80; ++i)
+	{
+		player.update(input, 0.05f);
+	}
+	const float centerDistance = glm::length(glm::vec2(player.position().x,
+	                                                   player.position().z + 3.0f));
+	expectTrue(centerDistance >= 1.7999f, "sliding motion remains outside the obstacle");
+	expectTrue(player.position().z < -3.0f,
+	           "collision removes inward velocity but preserves motion around the obstacle");
+}
+
+void testPlayerCanFlyAboveStaticObstacle()
+{
+	PlayerController player;
+	StaticCollisionCylinder obstacle;
+	obstacle.center = glm::vec2(0.0f, -3.0f);
+	obstacle.radius = 1.0f;
+	obstacle.baseY = 0.0f;
+	obstacle.height = 2.0f;
+	player.setStaticObstacles({obstacle});
+	player.reset(glm::vec3(0.0f, 3.0f, 0.0f));
+	PlayerInput input;
+	input.forward = 1.0f;
+
+	for (int i = 0; i < 40; ++i)
+	{
+		player.update(input, 0.05f);
+	}
+	expectTrue(player.position().z < -4.0f,
+	           "player above an obstacle can fly across its horizontal footprint");
+}
+
 void testBoundaryUsesCollisionRadiusAndSlides()
 {
 	PlayerController player;
@@ -205,6 +279,9 @@ int main()
 	testTerrainGroundPreventsUphillPenetration();
 	testGravityLandsOnLocalTerrainHeightOnce();
 	testFlightCeilingFollowsLocalTerrainHeight();
+	testStaticObstacleStopsAndDebouncesContact();
+	testStaticObstaclePreservesTangentialSliding();
+	testPlayerCanFlyAboveStaticObstacle();
 	testBoundaryUsesCollisionRadiusAndSlides();
 	testCeilingStopsAscent();
 	testLargeFrameIsClamped();

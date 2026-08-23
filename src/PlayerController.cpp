@@ -104,6 +104,60 @@ PlayerMotionEvents PlayerController::update(const PlayerInput &rawInput, float d
 		horizontalVelocity_.z = 0.0f;
 	}
 
+	std::vector<unsigned char> nextObstacleContacts(staticObstacles_.size(), 0);
+	for (std::size_t index = 0; index < staticObstacles_.size(); ++index)
+	{
+		const StaticCollisionCylinder &obstacle = staticObstacles_[index];
+		if (obstacle.radius <= 0.0f || obstacle.height <= 0.0f ||
+		    position_.y >= obstacle.baseY + obstacle.height - CONTACT_EPSILON)
+		{
+			continue;
+		}
+
+		const float minimumDistance = config_.collisionRadius + obstacle.radius;
+		glm::vec2 separation(nextPosition.x - obstacle.center.x,
+		                     nextPosition.z - obstacle.center.y);
+		const float distanceSquared = glm::dot(separation, separation);
+		if (distanceSquared >= minimumDistance * minimumDistance)
+		{
+			continue;
+		}
+
+		glm::vec2 normal(1.0f, 0.0f);
+		if (distanceSquared > AXIS_EPSILON * AXIS_EPSILON)
+		{
+			normal = separation / std::sqrt(distanceSquared);
+		}
+		else
+		{
+			glm::vec2 previousSeparation(position_.x - obstacle.center.x,
+			                             position_.z - obstacle.center.y);
+			const float previousDistance = glm::length(previousSeparation);
+			if (previousDistance > AXIS_EPSILON)
+			{
+				normal = previousSeparation / previousDistance;
+			}
+		}
+
+		nextPosition.x = obstacle.center.x + normal.x * minimumDistance;
+		nextPosition.z = obstacle.center.y + normal.y * minimumDistance;
+		glm::vec2 planarVelocity(horizontalVelocity_.x, horizontalVelocity_.z);
+		const float inwardSpeed = glm::dot(planarVelocity, normal);
+		if (inwardSpeed < 0.0f)
+		{
+			planarVelocity -= normal * inwardSpeed;
+			horizontalVelocity_.x = planarVelocity.x;
+			horizontalVelocity_.z = planarVelocity.y;
+		}
+
+		nextObstacleContacts[index] = 1;
+		if (index >= obstacleContacts_.size() || obstacleContacts_[index] == 0)
+		{
+			events.hitObstacle = true;
+		}
+	}
+	obstacleContacts_ = std::move(nextObstacleContacts);
+
 	if (std::fabs(input.vertical) > AXIS_EPSILON)
 	{
 		float targetVerticalSpeed = input.vertical > 0.0f
@@ -168,6 +222,7 @@ void PlayerController::reset(const glm::vec3 &position, float yaw)
 	yaw_ = wrapAngle(yaw);
 	gravityEnabled_ = false;
 	grounded_ = position_.y <= groundHeight + CONTACT_EPSILON;
+	obstacleContacts_.assign(staticObstacles_.size(), 0);
 }
 
 void PlayerController::setGroundHeightProvider(GroundHeightProvider provider)
@@ -181,6 +236,12 @@ void PlayerController::setGroundHeightProvider(GroundHeightProvider provider)
 		verticalVelocity_ = 0.0f;
 	}
 	grounded_ = position_.y <= groundHeight + CONTACT_EPSILON;
+}
+
+void PlayerController::setStaticObstacles(std::vector<StaticCollisionCylinder> obstacles)
+{
+	staticObstacles_ = std::move(obstacles);
+	obstacleContacts_.assign(staticObstacles_.size(), 0);
 }
 
 void PlayerController::setGravityEnabled(bool enabled)

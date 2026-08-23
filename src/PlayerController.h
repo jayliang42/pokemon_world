@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <vector>
 
 #include <glm/glm.hpp>
 
@@ -15,7 +16,16 @@ struct PlayerMotionEvents
 {
 	bool landed = false;
 	bool hitBoundary = false;
+	bool hitObstacle = false;
 	bool hitCeiling = false;
+};
+
+struct StaticCollisionCylinder
+{
+	glm::vec2 center = glm::vec2(0.0f);
+	float radius = 1.0f;
+	float baseY = 0.0f;
+	float height = 1.0f;
 };
 
 struct PlayerPhysicsConfig
@@ -49,6 +59,7 @@ public:
 	void reset();
 	void reset(const glm::vec3 &position, float yaw = 0.0f);
 	void setGroundHeightProvider(GroundHeightProvider provider);
+	void setStaticObstacles(std::vector<StaticCollisionCylinder> obstacles);
 	void setGravityEnabled(bool enabled);
 	void toggleGravity();
 
@@ -64,6 +75,8 @@ private:
 
 	PlayerPhysicsConfig config_;
 	GroundHeightProvider groundHeightProvider_;
+	std::vector<StaticCollisionCylinder> staticObstacles_;
+	std::vector<unsigned char> obstacleContacts_;
 	glm::vec3 position_ = glm::vec3(0.0f);
 	glm::vec3 horizontalVelocity_ = glm::vec3(0.0f);
 	float verticalVelocity_ = 0.0f;
