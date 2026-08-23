@@ -23,10 +23,16 @@ public:
 	void update(double deltaSeconds, const glm::vec3 &playerPosition);
 	void setCaught(int flag);
 	void startle();
+	int applyDamage(int amount);
+	void restoreHealth();
 	void setDestination(float x, float y, float z);
 	void setPosition(const glm::vec3 &position);
 
 	int getCaught() const;
+	int getHealth() const;
+	int getMaximumHealth() const;
+	float getHealthRatio() const;
+	bool isFainted() const;
 	glm::vec3 getPos() const;
 	glm::vec3 getVelocity() const;
 	float getHeading() const;
@@ -58,6 +64,8 @@ private:
 	bool caught_ = false;
 	bool flying_ = false;
 	int pokemonID_ = -1;
+	int health_ = 1;
+	int maximumHealth_ = 1;
 	std::uint32_t randomState_ = 1;
 	PokemonBehaviorState behaviorState_ = PokemonBehaviorState::Idle;
 };

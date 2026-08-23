@@ -67,6 +67,17 @@ void testDistanceAimAndActivityMatter()
 	           "close calm centered targets are easier than distant fleeing targets");
 }
 
+void testLowHealthImprovesCaptureProbability()
+{
+	CaptureAttempt healthy = standardAttempt(PokemonSpecies::Umbreon);
+	healthy.healthRatio = 1.0f;
+	CaptureAttempt weakened = healthy;
+	weakened.healthRatio = 0.12f;
+	expectTrue(calculateCaptureProbability(weakened) >
+	               calculateCaptureProbability(healthy),
+	           "weakening a Pokemon increases its capture probability");
+}
+
 void testProbabilityClampsInvalidExtremes()
 {
 	CaptureAttempt attempt = standardAttempt(PokemonSpecies::Bulbasaur);
@@ -119,6 +130,7 @@ int main()
 {
 	testSpeciesHaveDistinctCaptureDifficulty();
 	testDistanceAimAndActivityMatter();
+	testLowHealthImprovesCaptureProbability();
 	testProbabilityClampsInvalidExtremes();
 	testResolutionMapsSuccessAndNearMissShakes();
 	testCaptureRandomIsDeterministicAndBounded();

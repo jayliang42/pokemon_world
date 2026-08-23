@@ -46,9 +46,12 @@ float calculateCaptureProbability(const CaptureAttempt &attempt)
 	const float distanceMultiplier = 1.15f - distanceRatio * 0.45f;
 	const float alignment = clampValue(attempt.alignment, 0.0f, 1.0f);
 	const float alignmentMultiplier = 0.82f + alignment * 0.18f;
+	const float healthRatio = clampValue(attempt.healthRatio, 0.0f, 1.0f);
+	const float healthMultiplier = 0.85f + (1.0f - healthRatio) * 0.50f;
 	const float probability = speciesBaseProbability(attempt.species) *
 	                          distanceMultiplier * alignmentMultiplier *
-	                          activityMultiplier(attempt.activity);
+	                          activityMultiplier(attempt.activity) *
+	                          healthMultiplier;
 	return clampValue(probability, 0.12f, 0.95f);
 }
 

@@ -45,6 +45,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 
   add_executable(pokemon_behavior_tests
       tests/pokemon_behavior_test.cpp
+	  src/BattleMechanics.cpp
       src/Pokemon.cpp
       src/PokemonAnimation.cpp
       src/PokemonSpecies.cpp)

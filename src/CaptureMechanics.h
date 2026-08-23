@@ -17,6 +17,7 @@ struct CaptureAttempt
 	float distance = 0.0f;
 	float maximumDistance = 5.0f;
 	float alignment = 1.0f;
+	float healthRatio = 1.0f;
 	CaptureActivity activity = CaptureActivity::Moving;
 };
 

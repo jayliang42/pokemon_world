@@ -587,7 +587,8 @@ GLuint rockTex, umbreonTex;
 		{
 			PokemonTargetCandidate candidate;
 			candidate.index = i;
-			candidate.caught = umbreons[i].getCaught() != 0;
+			candidate.caught = umbreons[i].getCaught() != 0 ||
+			                   umbreons[i].isFainted();
 			candidate.position = pokemonWorldPosition(umbreons[i]);
 			candidates.push_back(candidate);
 		}
@@ -596,7 +597,8 @@ GLuint rockTex, umbreonTex;
 			PokemonTargetCandidate candidate;
 			candidate.index = i;
 			candidate.flying = true;
-			candidate.caught = charizards[i].getCaught() != 0;
+			candidate.caught = charizards[i].getCaught() != 0 ||
+			                   charizards[i].isFainted();
 			candidate.position = pokemonWorldPosition(charizards[i]);
 			candidates.push_back(candidate);
 		}
@@ -717,6 +719,7 @@ GLuint rockTex, umbreonTex;
 		attempt.distance = currentTarget.distance;
 		attempt.maximumDistance = captureRange;
 		attempt.alignment = currentTarget.alignment;
+		attempt.healthRatio = target->getHealthRatio();
 		attempt.activity = captureActivityFor(*target);
 		pendingCaptureResult = resolveCaptureAttempt(attempt, captureRandom.nextUnit());
 		pendingCaptureTarget = target;
@@ -1681,7 +1684,7 @@ GLuint rockTex, umbreonTex;
 
 		for (int i = 0; i < NUM_POKEMON; ++i)
 		{
-			if (umbreons[i].getCaught() == 1 ||
+			if (umbreons[i].getCaught() == 1 || umbreons[i].isFainted() ||
 			    (isPendingCaptureTarget(umbreons[i]) &&
 			     !captureVisualSample.pokemonVisible))
 			{
@@ -1706,7 +1709,7 @@ GLuint rockTex, umbreonTex;
 
 		for (int i = 0; i < FLYING_POKEMON; ++i)
 		{
-			if (charizards[i].getCaught() == 1 ||
+			if (charizards[i].getCaught() == 1 || charizards[i].isFainted() ||
 			    (isPendingCaptureTarget(charizards[i]) &&
 			     !captureVisualSample.pokemonVisible))
 			{
@@ -1888,7 +1891,7 @@ GLuint rockTex, umbreonTex;
 		for (int i = 0; i < NUM_POKEMON; i++)
 		{
 			// if flag been caught, then don't draw, if too far, don't draw
-			if (umbreons[i].getCaught() == 1 ||
+			if (umbreons[i].getCaught() == 1 || umbreons[i].isFainted() ||
 			    (isPendingCaptureTarget(umbreons[i]) &&
 			     !captureVisualSample.pokemonVisible))
 			{
@@ -1943,7 +1946,7 @@ GLuint rockTex, umbreonTex;
 		glBindTexture(GL_TEXTURE_2D, fireTex);
 		for (int i = 0; i < FLYING_POKEMON; i++)
 		{
-			if (charizards[i].getCaught() == 1 ||
+			if (charizards[i].getCaught() == 1 || charizards[i].isFainted() ||
 			    (isPendingCaptureTarget(charizards[i]) &&
 			     !captureVisualSample.pokemonVisible))
 			{

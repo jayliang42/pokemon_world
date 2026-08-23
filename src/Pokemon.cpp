@@ -1,5 +1,6 @@
 #include "Pokemon.h"
 
+#include "BattleMechanics.h"
 #include "PokemonAnimation.h"
 
 #include <algorithm>
@@ -61,11 +62,15 @@ float horizontalDistance(const glm::vec3 &first, const glm::vec3 &second)
 }
 }
 
-Pokemon::Pokemon() = default;
+Pokemon::Pokemon()
+{
+	restoreHealth();
+}
 
 Pokemon::Pokemon(int flyPokemon, int pokemonID, std::uint32_t seed)
 	: flying_(flyPokemon != 0), pokemonID_(pokemonID)
 {
+	restoreHealth();
 	randomState_ = seed != 0
 	                   ? seed
 	                   : (static_cast<std::uint32_t>(pokemonID + 1) * 747796405u) ^
@@ -102,7 +107,7 @@ void Pokemon::update(double deltaSeconds)
 
 void Pokemon::update(double deltaSeconds, const glm::vec3 &playerPosition)
 {
-	if (caught_)
+	if (caught_ || isFainted())
 	{
 		velocity_ = glm::vec3(0.0f);
 		return;
@@ -132,12 +137,33 @@ void Pokemon::setCaught(int flag)
 
 void Pokemon::startle()
 {
-	if (caught_)
+	if (caught_ || isFainted())
 	{
 		return;
 	}
 	enterFlee();
 	stateTimer_ = 1.5f;
+}
+
+int Pokemon::applyDamage(int amount)
+{
+	if (amount <= 0 || caught_ || isFainted())
+	{
+		return 0;
+	}
+	const int previousHealth = health_;
+	health_ = std::max(0, health_ - amount);
+	if (isFainted())
+	{
+		velocity_ = glm::vec3(0.0f);
+	}
+	return previousHealth - health_;
+}
+
+void Pokemon::restoreHealth()
+{
+	maximumHealth_ = battleStatsFor(getSpecies()).maximumHealth;
+	health_ = maximumHealth_;
 }
 
 void Pokemon::setDestination(float x, float y, float z)
@@ -162,6 +188,28 @@ void Pokemon::setPosition(const glm::vec3 &position)
 int Pokemon::getCaught() const
 {
 	return caught_ ? 1 : 0;
+}
+
+int Pokemon::getHealth() const
+{
+	return health_;
+}
+
+int Pokemon::getMaximumHealth() const
+{
+	return maximumHealth_;
+}
+
+float Pokemon::getHealthRatio() const
+{
+	return maximumHealth_ > 0
+	           ? static_cast<float>(health_) / static_cast<float>(maximumHealth_)
+	           : 0.0f;
+}
+
+bool Pokemon::isFainted() const
+{
+	return health_ <= 0;
 }
 
 glm::vec3 Pokemon::getPos() const

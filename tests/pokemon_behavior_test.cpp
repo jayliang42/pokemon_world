@@ -1,5 +1,6 @@
 #include "Pokemon.h"
 #include "PokemonAnimation.h"
+#include "BattleMechanics.h"
 
 #include <cmath>
 #include <iostream>
@@ -100,6 +101,36 @@ void testStartleForcesAFieldPokemonToFlee()
 	pokemon.startle();
 	expectTrue(pokemon.getCaught() == 1,
 	           "startle does not revive an already captured Pokemon");
+}
+
+void testHealthDamageFaintingAndRestore()
+{
+	Pokemon pokemon(0, 1, 99u);
+	expectTrue(pokemon.getHealth() == pokemon.getMaximumHealth() &&
+	               pokemon.getMaximumHealth() ==
+	                   battleStatsFor(PokemonSpecies::Bulbasaur).maximumHealth,
+	           "Pokemon begin at their species maximum health");
+	const int firstDamage = pokemon.applyDamage(12);
+	expectTrue(firstDamage == 12 && pokemon.getHealth() ==
+	               pokemon.getMaximumHealth() - 12,
+	           "damage reduces health and reports the applied amount");
+	const glm::vec3 positionBeforeFainting = pokemon.getPos();
+	pokemon.applyDamage(10000);
+	expectTrue(pokemon.isFainted() && pokemon.getHealth() == 0,
+	           "lethal damage clamps health at zero and marks fainting");
+	for (int i = 0; i < 20; ++i)
+	{
+		pokemon.update(0.05, glm::vec3(0.0f));
+	}
+	expectNear(glm::distance(pokemon.getPos(), positionBeforeFainting), 0.0f,
+	           0.0001f, "fainted Pokemon stop updating movement");
+	pokemon.startle();
+	expectNear(glm::length(pokemon.getVelocity()), 0.0f, 0.0001f,
+	           "fainted Pokemon cannot be startled back into motion");
+	pokemon.restoreHealth();
+	expectTrue(!pokemon.isFainted() &&
+	               pokemon.getHealth() == pokemon.getMaximumHealth(),
+	           "restoring health revives a Pokemon at full health");
 }
 
 void testFleeStateReturnsToWanderAfterReachingSafety()
@@ -238,6 +269,7 @@ int main()
 	testPokemonSpeciesAssignmentIsStable();
 	testNearbyPlayerTriggersSmoothFleeMotion();
 	testStartleForcesAFieldPokemonToFlee();
+	testHealthDamageFaintingAndRestore();
 	testFleeStateReturnsToWanderAfterReachingSafety();
 	testLargeFrameIsClampedAndCaughtPokemonStops();
 	testFlyingPokemonStaysWithinFlightBand();
