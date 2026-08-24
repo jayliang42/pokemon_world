@@ -25,6 +25,7 @@ struct BattleSequenceSample
 	float phaseProgress = 0.0f;
 	bool showPlayerProjectile = false;
 	bool showWildProjectile = false;
+	bool lockPlayerImpactPosition = false;
 	bool targetImpact = false;
 	bool playerImpact = false;
 	bool finished = false;

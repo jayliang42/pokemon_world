@@ -1134,6 +1134,7 @@ GLuint rockTex, umbreonTex;
 		}
 		const BattleSequenceSample sample = currentBattleSample(now);
 		if (pendingBattlePlan.counterEnabled &&
+		    sample.lockPlayerImpactPosition &&
 		    !battlePhaseAtLeast(lastBattlePhase, BattlePhase::WildProjectile) &&
 		    battlePhaseAtLeast(sample.phase, BattlePhase::WildProjectile))
 		{

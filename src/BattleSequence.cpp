@@ -96,6 +96,7 @@ BattleSequenceSample sampleBattleSequence(const BattleSequencePlan &plan,
 			sample.phase = BattlePhase::WildProjectile;
 			sample.phaseProgress = progressWithin(remaining, WILD_PROJECTILE_DURATION);
 			sample.showWildProjectile = true;
+			sample.lockPlayerImpactPosition = plan.playerAttackEnabled;
 			return sample;
 		}
 		remaining -= WILD_PROJECTILE_DURATION;

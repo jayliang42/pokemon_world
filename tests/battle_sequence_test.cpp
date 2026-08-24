@@ -55,8 +55,9 @@ void testSurvivingTargetCountersBeforeRecovery()
 	expectTrue(windup.phase == BattlePhase::WildWindup,
 	           "surviving target prepares a counterattack");
 	expectTrue(projectile.phase == BattlePhase::WildProjectile &&
-	               projectile.showWildProjectile,
-	           "counterattack includes a visible travel phase");
+	               projectile.showWildProjectile &&
+	               projectile.lockPlayerImpactPosition,
+	           "a counterattack releases visually and retargets the player");
 	expectTrue(impact.phase == BattlePhase::PlayerImpact && impact.playerImpact,
 	           "counterattack reaches a player impact phase");
 }
@@ -84,8 +85,9 @@ void testWildInitiatedAttackSkipsPlayerPhases()
 	           "a wild-initiated battle starts with the wild attack windup");
 	expectTrue(projectile.phase == BattlePhase::WildProjectile &&
 	               projectile.showWildProjectile &&
-	               !projectile.showPlayerProjectile,
-	           "a wild-initiated battle only exposes the wild projectile");
+	               !projectile.showPlayerProjectile &&
+	               !projectile.lockPlayerImpactPosition,
+	           "a telegraphed wild opener keeps its original impact point");
 	expectTrue(impact.phase == BattlePhase::PlayerImpact && impact.playerImpact &&
 	               !impact.targetImpact,
 	           "a wild-initiated battle reaches the player without a target hit");
