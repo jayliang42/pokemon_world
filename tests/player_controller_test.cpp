@@ -31,8 +31,8 @@ void testTurnButtonsMatchControllerDirection()
 {
 	const float leftTurn = playerTurnAxis(true, false);
 	const float rightTurn = playerTurnAxis(false, true);
-	expectNear(leftTurn, 1.0f, 0.0001f, "A produces a left-turn input");
-	expectNear(rightTurn, -1.0f, 0.0001f, "D produces a right-turn input");
+	expectNear(leftTurn, -1.0f, 0.0001f, "A produces the game's left-turn input");
+	expectNear(rightTurn, 1.0f, 0.0001f, "D produces the game's right-turn input");
 	expectNear(playerTurnAxis(true, true), 0.0f, 0.0001f,
 	           "opposing turn buttons cancel each other");
 
@@ -41,18 +41,18 @@ void testTurnButtonsMatchControllerDirection()
 	input.turn = leftTurn;
 	PlayerController leftTurningPlayer;
 	leftTurningPlayer.update(input, 0.05f);
-	expectTrue(leftTurningPlayer.yaw() > 0.0f,
-	           "A increases yaw using the controller's left-turn convention");
-	expectTrue(leftTurningPlayer.position().x < 0.0f,
-	           "A steers toward screen-left from the initial camera view");
+	expectTrue(leftTurningPlayer.yaw() < 0.0f,
+	           "A decreases yaw using the game's left-turn convention");
+	expectTrue(leftTurningPlayer.position().x > 0.0f,
+	           "A follows the game's rendered left-turn convention");
 
 	input.turn = rightTurn;
 	PlayerController rightTurningPlayer;
 	rightTurningPlayer.update(input, 0.05f);
-	expectTrue(rightTurningPlayer.yaw() < 0.0f,
-	           "D decreases yaw using the controller's right-turn convention");
-	expectTrue(rightTurningPlayer.position().x > 0.0f,
-	           "D steers toward screen-right from the initial camera view");
+	expectTrue(rightTurningPlayer.yaw() > 0.0f,
+	           "D increases yaw using the game's right-turn convention");
+	expectTrue(rightTurningPlayer.position().x < 0.0f,
+	           "D follows the game's rendered right-turn convention");
 }
 
 void testSmoothHorizontalAccelerationAndBraking()
