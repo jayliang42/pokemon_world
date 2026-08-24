@@ -11,6 +11,8 @@ Pokemon, and complete a short research assignment by catching five of them.
 
 **[Play the browser version](https://jayliang42.github.io/pokemon_world/)**
 
+**[中文游戏策划设计文档](docs/GAME_DESIGN_DOCUMENT.zh-CN.md)**
+
 
 All platforms
 -------------
