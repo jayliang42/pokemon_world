@@ -19,6 +19,7 @@ struct PlayerMotionEvents
 	bool landed = false;
 	bool hitBoundary = false;
 	bool hitObstacle = false;
+	bool hitDynamicObstacle = false;
 	bool hitCeiling = false;
 	bool dodgeStarted = false;
 };
@@ -67,6 +68,7 @@ public:
 	void reset(const glm::vec3 &position, float yaw = 0.0f);
 	void setGroundHeightProvider(GroundHeightProvider provider);
 	void setStaticObstacles(std::vector<StaticCollisionCylinder> obstacles);
+	void setDynamicObstacles(std::vector<StaticCollisionCylinder> obstacles);
 	void setGravityEnabled(bool enabled);
 	void toggleGravity();
 	bool requestDodge();
@@ -84,10 +86,13 @@ public:
 
 private:
 	float groundHeightAt(float worldX, float worldZ) const;
+	void rebuildObstacleSet();
 
 	PlayerPhysicsConfig config_;
 	GroundHeightProvider groundHeightProvider_;
 	std::vector<StaticCollisionCylinder> staticObstacles_;
+	std::vector<StaticCollisionCylinder> dynamicObstacles_;
+	std::vector<StaticCollisionCylinder> collisionObstacles_;
 	std::vector<unsigned char> obstacleContacts_;
 	glm::vec3 position_ = glm::vec3(0.0f);
 	glm::vec3 horizontalVelocity_ = glm::vec3(0.0f);

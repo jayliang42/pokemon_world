@@ -224,6 +224,48 @@ void testStaticObstaclePreservesTangentialSliding()
 	           "collision removes inward velocity but preserves motion around the obstacle");
 }
 
+void testDynamicCreatureObstacleUpdatesAndReportsContact()
+{
+	PlayerController player;
+	StaticCollisionCylinder creature;
+	creature.center = glm::vec2(0.0f, -3.0f);
+	creature.radius = 0.75f;
+	creature.baseY = 0.0f;
+	creature.height = 1.2f;
+	player.setDynamicObstacles({creature});
+
+	PlayerInput input;
+	input.forward = 1.0f;
+	int dynamicContacts = 0;
+	int staticContacts = 0;
+	for (int frame = 0; frame < 120; ++frame)
+	{
+		const PlayerMotionEvents events = player.update(input, 0.05f);
+		if (events.hitDynamicObstacle)
+		{
+			++dynamicContacts;
+		}
+		if (events.hitObstacle)
+		{
+			++staticContacts;
+		}
+	}
+	expectTrue(player.position().z > -1.51f,
+	           "a live ground creature blocks the player's collision radius");
+	expectTrue(dynamicContacts == 1,
+	           "dynamic creature contact is reported once until separation");
+	expectTrue(staticContacts == 0,
+	           "dynamic creature contact is distinct from a static obstacle");
+
+	player.setDynamicObstacles({});
+	for (int frame = 0; frame < 40; ++frame)
+	{
+		player.update(input, 0.05f);
+	}
+	expectTrue(player.position().z < -3.0f,
+	           "removing a dynamic creature immediately clears its collision");
+}
+
 void testPlayerCanFlyAboveStaticObstacle()
 {
 	PlayerController player;
@@ -418,6 +460,7 @@ int main()
 	testFlightCeilingFollowsLocalTerrainHeight();
 	testStaticObstacleStopsAndDebouncesContact();
 	testStaticObstaclePreservesTangentialSliding();
+	testDynamicCreatureObstacleUpdatesAndReportsContact();
 	testPlayerCanFlyAboveStaticObstacle();
 	testBoundaryUsesCollisionRadiusAndSlides();
 	testCeilingStopsAscent();

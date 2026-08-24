@@ -409,6 +409,11 @@ public:
 		controller_.setStaticObstacles(std::move(obstacles));
 	}
 
+	void setDynamicObstacles(std::vector<StaticCollisionCylinder> obstacles)
+	{
+		controller_.setDynamicObstacles(std::move(obstacles));
+	}
+
 	float yaw() const
 	{
 		return controller_.yaw();
@@ -675,6 +680,7 @@ GLuint rockTex, umbreonTex;
 		}
 
 		mycam.reset();
+		refreshPokemonCollisionObstacles();
 		caughtCount = data.caughtCount;
 		pokeballs = data.pokeballs;
 		defeatedCount = data.defeatedCount;
@@ -818,6 +824,7 @@ GLuint rockTex, umbreonTex;
 		}
 
 		mycam.reset();
+		refreshPokemonCollisionObstacles();
 		caughtCount = 0;
 		pokeballs = STARTING_POKEBALLS;
 		captureRequested = false;
@@ -1422,6 +1429,7 @@ GLuint rockTex, umbreonTex;
 			    charizards[i].update(deltaSeconds, mypos);
 			collectBehavior(charizards[i], events);
 		}
+		refreshPokemonCollisionObstacles();
 
 		if (nearestAttack && !battleSequenceActive && !captureSequenceActive &&
 		    now >= nextWildEncounterTime)
@@ -1434,6 +1442,33 @@ GLuint rockTex, umbreonTex;
 			emitGameCue("wild-alert", PokemonType::Dark);
 			setStatus("Wild Umbreon noticed you. Leave its territory or prepare to dodge.");
 		}
+	}
+
+	void refreshPokemonCollisionObstacles()
+	{
+		std::vector<StaticCollisionCylinder> colliders;
+		colliders.reserve(NUM_POKEMON);
+		for (int i = 0; i < NUM_POKEMON; ++i)
+		{
+			const Pokemon &candidate = umbreons[i];
+			const glm::vec3 position = candidate.getPos();
+			StaticCollisionCylinder collider;
+			collider.center = glm::vec2(position.x, position.z);
+			collider.baseY = terrainHeightMap.heightAt(position.x, position.z);
+			if (candidate.getCaught() == 0 && !candidate.isFainted())
+			{
+				const bool umbreon = candidate.getSpecies() == PokemonSpecies::Umbreon;
+				collider.radius = umbreon ? 0.78f : 0.64f;
+				collider.height = umbreon ? 1.22f : 0.96f;
+			}
+			else
+			{
+				collider.radius = 0.0f;
+				collider.height = 0.0f;
+			}
+			colliders.push_back(collider);
+		}
+		mycam.setDynamicObstacles(std::move(colliders));
 	}
 
 	void refreshTarget()
@@ -2287,6 +2322,7 @@ GLuint rockTex, umbreonTex;
 			rockColliders.push_back(collider);
 		}
 		mycam.setStaticObstacles(std::move(rockColliders));
+		refreshPokemonCollisionObstacles();
 
 		// texture 4
 		str = resourceDirectory + "/Texture/pokeball.jpg";
@@ -2652,6 +2688,10 @@ GLuint rockTex, umbreonTex;
 		else if (motionEvents.hitObstacle)
 		{
 			setStatus("A boulder blocks the path.");
+		}
+		else if (motionEvents.hitDynamicObstacle)
+		{
+			setStatus("A wild Pokemon blocks the path.");
 		}
 		updateBattleSequence(actionNow);
 		updateCaptureSequence(actionNow);

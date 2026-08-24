@@ -145,10 +145,10 @@ PlayerMotionEvents PlayerController::update(const PlayerInput &rawInput, float d
 		horizontalVelocity_.z = 0.0f;
 	}
 
-	std::vector<unsigned char> nextObstacleContacts(staticObstacles_.size(), 0);
-	for (std::size_t index = 0; index < staticObstacles_.size(); ++index)
+	std::vector<unsigned char> nextObstacleContacts(collisionObstacles_.size(), 0);
+	for (std::size_t index = 0; index < collisionObstacles_.size(); ++index)
 	{
-		const StaticCollisionCylinder &obstacle = staticObstacles_[index];
+		const StaticCollisionCylinder &obstacle = collisionObstacles_[index];
 		if (obstacle.radius <= 0.0f || obstacle.height <= 0.0f ||
 		    position_.y >= obstacle.baseY + obstacle.height - CONTACT_EPSILON)
 		{
@@ -194,7 +194,14 @@ PlayerMotionEvents PlayerController::update(const PlayerInput &rawInput, float d
 		nextObstacleContacts[index] = 1;
 		if (index >= obstacleContacts_.size() || obstacleContacts_[index] == 0)
 		{
-			events.hitObstacle = true;
+			if (index < staticObstacles_.size())
+			{
+				events.hitObstacle = true;
+			}
+			else
+			{
+				events.hitDynamicObstacle = true;
+			}
 		}
 	}
 	obstacleContacts_ = std::move(nextObstacleContacts);
@@ -267,7 +274,7 @@ void PlayerController::reset(const glm::vec3 &position, float yaw)
 	dodgeRequested_ = false;
 	gravityEnabled_ = false;
 	grounded_ = position_.y <= groundHeight + CONTACT_EPSILON;
-	obstacleContacts_.assign(staticObstacles_.size(), 0);
+	obstacleContacts_.assign(collisionObstacles_.size(), 0);
 }
 
 void PlayerController::setGroundHeightProvider(GroundHeightProvider provider)
@@ -286,7 +293,24 @@ void PlayerController::setGroundHeightProvider(GroundHeightProvider provider)
 void PlayerController::setStaticObstacles(std::vector<StaticCollisionCylinder> obstacles)
 {
 	staticObstacles_ = std::move(obstacles);
-	obstacleContacts_.assign(staticObstacles_.size(), 0);
+	rebuildObstacleSet();
+}
+
+void PlayerController::setDynamicObstacles(std::vector<StaticCollisionCylinder> obstacles)
+{
+	dynamicObstacles_ = std::move(obstacles);
+	rebuildObstacleSet();
+}
+
+void PlayerController::rebuildObstacleSet()
+{
+	collisionObstacles_ = staticObstacles_;
+	collisionObstacles_.insert(collisionObstacles_.end(), dynamicObstacles_.begin(),
+	                          dynamicObstacles_.end());
+	if (obstacleContacts_.size() != collisionObstacles_.size())
+	{
+		obstacleContacts_.assign(collisionObstacles_.size(), 0);
+	}
 }
 
 void PlayerController::setGravityEnabled(bool enabled)
