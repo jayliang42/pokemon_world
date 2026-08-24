@@ -15,6 +15,7 @@ enum class BattlePhase
 
 struct BattleSequencePlan
 {
+	bool playerAttackEnabled = true;
 	bool counterEnabled = true;
 };
 
@@ -32,4 +33,3 @@ struct BattleSequenceSample
 float battleSequenceDuration(const BattleSequencePlan &plan);
 BattleSequenceSample sampleBattleSequence(const BattleSequencePlan &plan,
 	                                        float elapsedSeconds);
-

@@ -20,13 +20,17 @@ float progressWithin(float elapsed, float duration)
 
 float battleSequenceDuration(const BattleSequencePlan &plan)
 {
+	const float playerAttackDuration = plan.playerAttackEnabled
+	                                       ? PLAYER_WINDUP_DURATION +
+	                                             PLAYER_PROJECTILE_DURATION +
+	                                             TARGET_IMPACT_DURATION
+	                                       : 0.0f;
 	const float counterDuration = plan.counterEnabled
 	                                  ? WILD_WINDUP_DURATION +
 	                                        WILD_PROJECTILE_DURATION +
 	                                        PLAYER_IMPACT_DURATION
 	                                  : 0.0f;
-	return PLAYER_WINDUP_DURATION + PLAYER_PROJECTILE_DURATION +
-	       TARGET_IMPACT_DURATION + counterDuration + RECOVERY_DURATION;
+	return playerAttackDuration + counterDuration + RECOVERY_DURATION;
 }
 
 BattleSequenceSample sampleBattleSequence(const BattleSequencePlan &plan,
@@ -46,31 +50,36 @@ BattleSequenceSample sampleBattleSequence(const BattleSequencePlan &plan,
 	}
 
 	float remaining = elapsedSeconds;
-	if (remaining < PLAYER_WINDUP_DURATION)
+	if (plan.playerAttackEnabled)
 	{
-		sample.phase = BattlePhase::PlayerWindup;
-		sample.phaseProgress = progressWithin(remaining, PLAYER_WINDUP_DURATION);
-		return sample;
-	}
-	remaining -= PLAYER_WINDUP_DURATION;
+		if (remaining < PLAYER_WINDUP_DURATION)
+		{
+			sample.phase = BattlePhase::PlayerWindup;
+			sample.phaseProgress = progressWithin(remaining, PLAYER_WINDUP_DURATION);
+			return sample;
+		}
+		remaining -= PLAYER_WINDUP_DURATION;
 
-	if (remaining < PLAYER_PROJECTILE_DURATION)
-	{
-		sample.phase = BattlePhase::PlayerProjectile;
-		sample.phaseProgress = progressWithin(remaining, PLAYER_PROJECTILE_DURATION);
-		sample.showPlayerProjectile = true;
-		return sample;
-	}
-	remaining -= PLAYER_PROJECTILE_DURATION;
+		if (remaining < PLAYER_PROJECTILE_DURATION)
+		{
+			sample.phase = BattlePhase::PlayerProjectile;
+			sample.phaseProgress =
+			    progressWithin(remaining, PLAYER_PROJECTILE_DURATION);
+			sample.showPlayerProjectile = true;
+			return sample;
+		}
+		remaining -= PLAYER_PROJECTILE_DURATION;
 
-	if (remaining < TARGET_IMPACT_DURATION)
-	{
-		sample.phase = BattlePhase::TargetImpact;
-		sample.phaseProgress = progressWithin(remaining, TARGET_IMPACT_DURATION);
-		sample.targetImpact = true;
-		return sample;
+		if (remaining < TARGET_IMPACT_DURATION)
+		{
+			sample.phase = BattlePhase::TargetImpact;
+			sample.phaseProgress =
+			    progressWithin(remaining, TARGET_IMPACT_DURATION);
+			sample.targetImpact = true;
+			return sample;
+		}
+		remaining -= TARGET_IMPACT_DURATION;
 	}
-	remaining -= TARGET_IMPACT_DURATION;
 
 	if (plan.counterEnabled)
 	{
@@ -105,4 +114,3 @@ BattleSequenceSample sampleBattleSequence(const BattleSequencePlan &plan,
 	sample.phaseProgress = progressWithin(remaining, RECOVERY_DURATION);
 	return sample;
 }
-

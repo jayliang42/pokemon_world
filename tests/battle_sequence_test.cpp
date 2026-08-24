@@ -73,6 +73,27 @@ void testFaintedTargetSkipsCounterattack()
 	           "skipping a counterattack shortens the sequence");
 }
 
+void testWildInitiatedAttackSkipsPlayerPhases()
+{
+	BattleSequencePlan plan;
+	plan.playerAttackEnabled = false;
+	const BattleSequenceSample windup = sampleBattleSequence(plan, 0.0f);
+	const BattleSequenceSample projectile = sampleBattleSequence(plan, 0.50f);
+	const BattleSequenceSample impact = sampleBattleSequence(plan, 0.90f);
+	expectTrue(windup.phase == BattlePhase::WildWindup,
+	           "a wild-initiated battle starts with the wild attack windup");
+	expectTrue(projectile.phase == BattlePhase::WildProjectile &&
+	               projectile.showWildProjectile &&
+	               !projectile.showPlayerProjectile,
+	           "a wild-initiated battle only exposes the wild projectile");
+	expectTrue(impact.phase == BattlePhase::PlayerImpact && impact.playerImpact &&
+	               !impact.targetImpact,
+	           "a wild-initiated battle reaches the player without a target hit");
+	expectTrue(battleSequenceDuration(plan) <
+	               battleSequenceDuration(BattleSequencePlan()),
+	           "skipping the player attack shortens the sequence");
+}
+
 void testExactDurationFinishesSequence()
 {
 	BattleSequencePlan plan;
@@ -90,6 +111,7 @@ int main()
 	testPlayerAttackPhasesExposeVisualEvents();
 	testSurvivingTargetCountersBeforeRecovery();
 	testFaintedTargetSkipsCounterattack();
+	testWildInitiatedAttackSkipsPlayerPhases();
 	testExactDurationFinishesSequence();
 
 	if (failures != 0)
@@ -101,4 +123,3 @@ int main()
 	std::cout << "All battle sequence tests passed" << std::endl;
 	return 0;
 }
-
