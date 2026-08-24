@@ -122,6 +122,74 @@
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
     }
 
+    .threat-alert {
+      position: absolute;
+      top: 18px;
+      left: 50%;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 220px;
+      padding: 8px 13px;
+      border: 1px solid rgba(255, 205, 84, 0.78);
+      border-radius: 999px;
+      color: #fff2bd;
+      background: linear-gradient(135deg, rgba(58, 36, 11, 0.91), rgba(116, 57, 10, 0.82));
+      box-shadow: 0 8px 26px rgba(21, 8, 0, 0.34), 0 0 18px rgba(255, 173, 48, 0.18);
+      transform: translateX(-50%);
+      backdrop-filter: blur(8px);
+      transition: border-color 120ms ease, background 120ms ease;
+    }
+
+    .threat-alert[hidden] { display: none; }
+
+    .threat-alert.is-pursuing {
+      border-color: rgba(255, 94, 76, 0.9);
+      color: #fff0ed;
+      background: linear-gradient(135deg, rgba(71, 15, 20, 0.94), rgba(148, 31, 22, 0.86));
+      box-shadow: 0 8px 26px rgba(21, 0, 3, 0.38), 0 0 22px rgba(255, 59, 42, 0.25);
+    }
+
+    .threat-icon {
+      display: grid;
+      width: 22px;
+      height: 22px;
+      flex: 0 0 22px;
+      place-items: center;
+      border-radius: 50%;
+      color: #3b2103;
+      background: #ffd35b;
+      font-size: 0.78rem;
+      font-weight: 900;
+    }
+
+    .threat-alert.is-pursuing .threat-icon {
+      color: #4b0604;
+      background: #ff796c;
+      animation: threat-pulse 620ms ease-in-out infinite alternate;
+    }
+
+    .threat-copy { min-width: 0; }
+    .threat-label {
+      display: block;
+      font-size: 0.58rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+    }
+    .threat-detail {
+      display: block;
+      overflow: hidden;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    @keyframes threat-pulse {
+      from { transform: scale(0.92); box-shadow: 0 0 0 rgba(255, 108, 91, 0); }
+      to { transform: scale(1.06); box-shadow: 0 0 14px rgba(255, 108, 91, 0.66); }
+    }
+
     .hud-card {
       position: absolute;
       width: min(270px, 38%);
@@ -463,6 +531,10 @@
       .hud-card { width: min(210px, 48%); padding: 8px 9px 9px; }
       .hud-player { left: 9px; bottom: 9px; }
       .hud-target { right: 9px; top: 9px; }
+      .threat-alert { top: 76px; min-width: 0; width: 58%; padding: 6px 9px; }
+      .threat-icon { width: 18px; height: 18px; flex-basis: 18px; font-size: 0.64rem; }
+      .threat-label { font-size: 0.48rem; }
+      .threat-detail { font-size: 0.58rem; }
       .hud-name { font-size: 0.72rem; }
       .hud-tag, .hud-values { font-size: 0.56rem; }
       .mission-panel { top: 9px; left: 9px; width: min(195px, 45%); padding: 8px; }
@@ -523,6 +595,13 @@
               <span>Catch research samples</span>
               <span class="mission-value">0 / 5</span>
             </div>
+          </section>
+          <section id="threat-alert" class="threat-alert" role="alert" hidden>
+            <span class="threat-icon">!</span>
+            <span class="threat-copy">
+              <span id="threat-label" class="threat-label">WILD ALERT</span>
+              <span id="threat-detail" class="threat-detail">Umbreon is watching</span>
+            </span>
           </section>
           <section id="player-hud" class="hud-card hud-player">
             <div class="hud-heading">
@@ -607,7 +686,7 @@
       <div class="control"><kbd>W</kbd><kbd>S</kbd> Accelerate / reverse</div>
       <div class="control"><kbd>A</kbd><kbd>D</kbd> Turn left / right</div>
       <div class="control"><kbd>Q</kbd><kbd>Space</kbd> Climb · <kbd>E</kbd> Descend</div>
-      <div class="control"><kbd>Shift</kbd> Dodge · evade during the hit window</div>
+      <div class="control"><kbd>Shift</kbd> Dodge · evade incoming wild attacks</div>
       <div class="control"><kbd>Z</kbd> Toggle gravity</div>
       <div class="control"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Select a move</div>
       <div class="control"><kbd>X</kbd> Use the selected move</div>
@@ -630,6 +709,9 @@
     const targetName = document.getElementById('target-name');
     const targetHpFill = document.getElementById('target-hp-fill');
     const targetHpText = document.getElementById('target-hp-text');
+    const threatAlert = document.getElementById('threat-alert');
+    const threatLabel = document.getElementById('threat-label');
+    const threatDetail = document.getElementById('threat-detail');
     const saveStateElement = document.getElementById('save-state');
     const audioToggle = document.getElementById('audio-toggle');
     const missionCount = document.getElementById('mission-count');
@@ -793,6 +875,9 @@
                      Number(moveType) === 3 ? 'triangle' : 'sawtooth', 0.038);
       } else if (cue === 'wild-attack') {
         scheduleTone(context, now, base * 0.8, base * 1.35, 0.16, 'square', 0.026);
+      } else if (cue === 'wild-alert') {
+        scheduleTone(context, now, 185, 132, 0.16, 'sawtooth', 0.026);
+        scheduleTone(context, now + 0.11, 220, 148, 0.18, 'square', 0.021);
       } else if (cue === 'target-impact' || cue === 'player-impact') {
         scheduleNoise(context, now, 0.11, cue === 'player-impact' ? 0.045 : 0.035);
         scheduleTone(context, now, base * 0.7, base * 0.42, 0.12, 'square', 0.026);
@@ -868,6 +953,15 @@
                            dodging, invulnerable) {
         updateDodgeHud(remainingSeconds, cooldownFraction,
                        dodging, invulnerable);
+      },
+      onThreatHud: function (pokemonName, distance, pursuing, visible) {
+        threatAlert.hidden = !visible;
+        threatAlert.classList.toggle('is-pursuing', Boolean(pursuing));
+        if (visible) {
+          const safeDistance = Math.max(0, Number(distance) || 0);
+          threatLabel.textContent = pursuing ? 'DANGER · PURSUING' : 'WILD ALERT';
+          threatDetail.textContent = `${pokemonName || 'Wild Pokemon'} · ${safeDistance.toFixed(1)}m · ${pursuing ? 'Shift to dodge' : 'Watching you'}`;
+        }
       },
       onGameCue: function (cue, moveType) {
         playGameCue(cue, moveType);

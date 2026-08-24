@@ -162,6 +162,13 @@ lock their impact point when the projectile launches, so a well-timed dodge can
 avoid damage by leaving that area. Dodge movement still obeys the player's
 collision radius, field boundary, terrain height, and boulder collision.
 
+Wild species now have distinct field behavior. Bulbasaur remains timid and
+flees at close range, while Umbreon guards its territory: it pauses to warn the
+player, pursues inside its alert radius, and can initiate Bite without waiting
+for the player to attack. Amber and red ground rings plus the Wild Alert HUD
+show the escalation, and Shift can evade the telegraphed Bite. Bite uses a short
+model lunge and local jaw impact instead of a detached projectile arc.
+
 The browser build synthesizes lightweight battle, dodge, capture, and landing
 sound effects with Web Audio after the first player interaction. No commercial
 game audio is bundled, and the sound toggle in the page header can mute feedback

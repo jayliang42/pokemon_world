@@ -94,6 +94,40 @@ glm::vec3 battleProjectilePosition(const glm::vec3 &start,
 	       glm::vec3(0.0f, std::sin(eased * 3.1415926f) * arcHeight, 0.0f);
 }
 
+glm::vec3 wildBattleLungeOffset(const glm::vec3 &start,
+	                            const glm::vec3 &end,
+	                            const BattleSequenceSample &sample,
+	                            const BattleMove &move)
+{
+	if (move.id != BattleMoveId::Bite)
+	{
+		return glm::vec3(0.0f);
+	}
+	glm::vec3 direction = end - start;
+	direction.y = 0.0f;
+	const float distance = glm::length(direction);
+	if (distance <= 0.001f)
+	{
+		return glm::vec3(0.0f);
+	}
+	direction /= distance;
+	const float lungeDistance = std::min(1.55f, distance * 0.34f);
+	const float eased = easedBattleProgress(sample.phaseProgress);
+	if (sample.phase == BattlePhase::WildWindup)
+	{
+		return direction * (-0.12f * eased);
+	}
+	if (sample.phase == BattlePhase::WildProjectile)
+	{
+		return direction * (-0.12f + (lungeDistance + 0.12f) * eased);
+	}
+	if (sample.phase == BattlePhase::PlayerImpact)
+	{
+		return direction * (lungeDistance * (1.0f - eased));
+	}
+	return glm::vec3(0.0f);
+}
+
 BattleEffectPalette battleEffectPalette(PokemonType type)
 {
 	switch (type)
@@ -202,9 +236,38 @@ void applyPlayerDodgePose(PokemonAnimationPose &pose, bool dodging,
 }
 
 void applyWildBattlePose(PokemonAnimationPose &pose,
-	                     const BattleSequenceSample &sample)
+	                     const BattleSequenceSample &sample,
+	                     const BattleMove &move)
 {
 	const float eased = easedBattleProgress(sample.phaseProgress);
+	if (move.id == BattleMoveId::Bite)
+	{
+		if (sample.phase == BattlePhase::WildWindup)
+		{
+			pose.bodyPitch -= eased * 0.18f;
+			pose.bodyBob -= eased * 0.055f;
+			pose.breathingScale += eased * 0.026f;
+		}
+		else if (sample.phase == BattlePhase::WildProjectile)
+		{
+			const float burst = std::sin(sample.phaseProgress * 3.1415926f);
+			pose.bodyPitch -= 0.18f + burst * 0.12f;
+			pose.bodyBob += burst * 0.11f;
+			pose.strideAngle += burst * 0.48f;
+		}
+		else if (sample.phase == BattlePhase::PlayerImpact)
+		{
+			pose.bodyPitch -= (1.0f - eased) * 0.14f;
+		}
+		else if (sample.phase == BattlePhase::TargetImpact)
+		{
+			const float recoil = std::sin(sample.phaseProgress * 3.1415926f);
+			pose.bodyPitch += recoil * 0.13f;
+			pose.bodyRoll -= recoil * 0.19f;
+			pose.bodyBob += recoil * 0.08f;
+		}
+		return;
+	}
 	if (sample.phase == BattlePhase::TargetImpact)
 	{
 		const float recoil = std::sin(sample.phaseProgress * 3.1415926f);
@@ -444,12 +507,16 @@ GLuint rockTex, umbreonTex;
 	bool targetDamageApplied = false;
 	bool playerDamageApplied = false;
 	bool playerEvadedCurrentCounter = false;
+	bool battleInitiatedByWild = false;
 	std::string pendingBattleSpecies;
 	glm::vec3 battlePlayerOrigin = glm::vec3(0.0f);
 	glm::vec3 battleTargetPosition = glm::vec3(0.0f);
 	glm::vec3 battlePlayerHitPosition = glm::vec3(0.0f);
 	glm::vec3 dodgeEffectOrigin = glm::vec3(0.0f);
 	double dodgeEffectStarted = -100.0;
+	Pokemon *overworldThreat = nullptr;
+	float overworldThreatDistance = 0.0f;
+	double nextWildEncounterTime = 1.25;
 	ResearchMissionProgress researchProgress;
 	double resetConfirmationExpires = -100.0;
 	float playerAnimationPhase = 0.0f;
@@ -624,6 +691,10 @@ GLuint rockTex, umbreonTex;
 		battleSequenceActive = false;
 		pendingBattleTarget = nullptr;
 		playerEvadedCurrentCounter = false;
+		battleInitiatedByWild = false;
+		overworldThreat = nullptr;
+		overworldThreatDistance = 0.0f;
+		nextWildEncounterTime = glfwGetTime() + 1.0;
 		playerMoveLoadout.reset();
 		resetConfirmationExpires = -100.0;
 		gameFinished = caughtCount >= CAPTURE_GOAL || playerHealth <= 0 ||
@@ -772,7 +843,11 @@ GLuint rockTex, umbreonTex;
 		targetDamageApplied = false;
 		playerDamageApplied = false;
 		playerEvadedCurrentCounter = false;
+		battleInitiatedByWild = false;
 		pendingBattleSpecies.clear();
+		overworldThreat = nullptr;
+		overworldThreatDistance = 0.0f;
+		nextWildEncounterTime = glfwGetTime() + 1.0;
 		playerMoveLoadout.reset();
 		researchProgress = ResearchMissionProgress();
 		resetConfirmationExpires = -100.0;
@@ -1008,9 +1083,16 @@ GLuint rockTex, umbreonTex;
 	{
 		Pokemon *target = pendingBattleTarget;
 		const bool targetFainted = target && target->isFainted();
+		const bool wildInitiated = battleInitiatedByWild;
 		battleSequenceActive = false;
 		pendingBattleTarget = nullptr;
 		lastBattlePhase = BattlePhase::Finished;
+		battleInitiatedByWild = false;
+		nextWildEncounterTime = glfwGetTime() + 0.9;
+		if (wildInitiated && target)
+		{
+			target->coolDownAfterAttack();
+		}
 
 		if (playerHealth <= 0)
 		{
@@ -1024,6 +1106,13 @@ GLuint rockTex, umbreonTex;
 			message << pendingBattleSpecies << " fainted. " << defeatedCount
 			        << " wild Pokemon defeated.";
 			setStatus(message.str());
+			return;
+		}
+		if (wildInitiated)
+		{
+			setStatus(playerEvadedCurrentCounter
+			              ? "Clean dodge! Umbreon pauses; counterattack or create distance."
+			              : "Umbreon is guarding its territory. Create distance or counterattack.");
 			return;
 		}
 		if (target)
@@ -1050,7 +1139,7 @@ GLuint rockTex, umbreonTex;
 		{
 			battlePlayerHitPosition = mypos + glm::vec3(0.0f, 0.82f, 0.0f);
 		}
-		if (!targetDamageApplied &&
+		if (pendingBattlePlan.playerAttackEnabled && !targetDamageApplied &&
 		    battlePhaseAtLeast(sample.phase, BattlePhase::TargetImpact))
 		{
 			targetDamageApplied = true;
@@ -1118,7 +1207,8 @@ GLuint rockTex, umbreonTex;
 		if (sample.phase != lastBattlePhase)
 		{
 			lastBattlePhase = sample.phase;
-			if (sample.phase == BattlePhase::PlayerProjectile)
+			if (sample.phase == BattlePhase::PlayerProjectile &&
+			    pendingBattlePlan.playerAttackEnabled)
 			{
 				emitGameCue("player-attack", pendingPlayerMove.type);
 				setStatus(std::string("Charizard used ") + pendingPlayerMove.name + "!");
@@ -1126,7 +1216,8 @@ GLuint rockTex, umbreonTex;
 			else if (sample.phase == BattlePhase::WildWindup &&
 			         pendingBattlePlan.counterEnabled)
 			{
-				setStatus(pendingBattleSpecies + " prepares " + pendingWildMove.name + "!");
+				setStatus(pendingBattleSpecies + " prepares " + pendingWildMove.name +
+				          (battleInitiatedByWild ? "! Press Shift to dodge." : "!"));
 			}
 			else if (sample.phase == BattlePhase::WildProjectile &&
 			         pendingBattlePlan.counterEnabled)
@@ -1207,9 +1298,11 @@ GLuint rockTex, umbreonTex;
 			PokemonSpecies::Charizard, target->getSpecies(), pendingPlayerMove);
 		pendingWildDamage = resolveBattleDamage(
 			target->getSpecies(), PokemonSpecies::Charizard, pendingWildMove);
+		pendingBattlePlan.playerAttackEnabled = true;
 		pendingBattlePlan.counterEnabled =
 			target->getHealth() > pendingPlayerDamage.amount;
 		battleSequenceActive = true;
+		battleInitiatedByWild = false;
 		battleSequenceStarted = now;
 		lastBattlePhase = BattlePhase::PlayerWindup;
 		targetDamageApplied = false;
@@ -1227,12 +1320,82 @@ GLuint rockTex, umbreonTex;
 		          " against " + pendingBattleSpecies + ".");
 	}
 
+	void startWildEncounter(Pokemon &attacker, double now)
+	{
+		if (battleSequenceActive || captureSequenceActive || gameFinished ||
+		    attacker.getCaught() != 0 || attacker.isFainted() ||
+		    now < nextWildEncounterTime)
+		{
+			return;
+		}
+
+		pendingBattleTarget = &attacker;
+		pendingBattleSpecies = pokemonSpeciesName(attacker.getSpecies());
+		pendingPlayerMove = playerMoveLoadout.selectedMove();
+		pendingWildMove = wildBattleMoveFor(attacker.getSpecies());
+		pendingPlayerDamage = BattleDamageResult();
+		pendingWildDamage = resolveBattleDamage(
+			attacker.getSpecies(), PokemonSpecies::Charizard, pendingWildMove);
+		pendingBattlePlan.playerAttackEnabled = false;
+		pendingBattlePlan.counterEnabled = true;
+		battleSequenceActive = true;
+		battleInitiatedByWild = true;
+		battleSequenceStarted = now;
+		lastBattlePhase = BattlePhase::Inactive;
+		targetDamageApplied = true;
+		playerDamageApplied = false;
+		playerEvadedCurrentCounter = false;
+		battlePlayerOrigin = mypos + glm::vec3(0.0f, 0.9f, 0.0f);
+		battleTargetPosition = pokemonWorldPosition(attacker);
+		battleTargetPosition.y += attacker.isFlying() ? 0.0f : 0.52f;
+		battlePlayerHitPosition = mypos + glm::vec3(0.0f, 0.82f, 0.0f);
+		currentTarget = PokemonTargetSelection();
+		nextWildEncounterTime =
+		    now + battleSequenceDuration(pendingBattlePlan) + 0.9;
+		emitGameCue("wild-alert", pendingWildMove.type);
+		setStatus(pendingBattleSpecies + " lunges with " + pendingWildMove.name +
+		          "! Press Shift to dodge.");
+	}
+
 	void updatePokemonAgents(double deltaSeconds, double now)
 	{
+		overworldThreat = nullptr;
+		overworldThreatDistance = 0.0f;
 		if (gameFinished)
 		{
 			return;
 		}
+		Pokemon *nearestAttack = nullptr;
+		Pokemon *nearestAlert = nullptr;
+		float nearestAttackDistance = 100000.0f;
+		float nearestAlertDistance = 100000.0f;
+		float nearestThreatDistance = 100000.0f;
+		auto collectBehavior = [&](Pokemon &candidate,
+		                           const PokemonBehaviorEvents &events) {
+			if (candidate.getCaught() != 0 || candidate.isFainted())
+			{
+				return;
+			}
+			const glm::vec3 position = candidate.getPos();
+			const float distance = glm::length(glm::vec2(
+				mypos.x - position.x, mypos.z - position.z));
+			if (candidate.isThreatening() && distance < nearestThreatDistance)
+			{
+				overworldThreat = &candidate;
+				overworldThreatDistance = distance;
+				nearestThreatDistance = distance;
+			}
+			if (events.alertStarted && distance < nearestAlertDistance)
+			{
+				nearestAlert = &candidate;
+				nearestAlertDistance = distance;
+			}
+			if (events.attackReady && distance < nearestAttackDistance)
+			{
+				nearestAttack = &candidate;
+				nearestAttackDistance = distance;
+			}
+		};
 		const CaptureSequenceSample captureSample = currentCaptureSample(now);
 		for (int i = 0; i < NUM_POKEMON; ++i)
 		{
@@ -1242,7 +1405,9 @@ GLuint rockTex, umbreonTex;
 			{
 				continue;
 			}
-			umbreons[i].update(deltaSeconds, mypos);
+			const PokemonBehaviorEvents events =
+			    umbreons[i].update(deltaSeconds, mypos);
+			collectBehavior(umbreons[i], events);
 		}
 		for (int i = 0; i < FLYING_POKEMON; ++i)
 		{
@@ -1252,7 +1417,21 @@ GLuint rockTex, umbreonTex;
 			{
 				continue;
 			}
-			charizards[i].update(deltaSeconds, mypos);
+			const PokemonBehaviorEvents events =
+			    charizards[i].update(deltaSeconds, mypos);
+			collectBehavior(charizards[i], events);
+		}
+
+		if (nearestAttack && !battleSequenceActive && !captureSequenceActive &&
+		    now >= nextWildEncounterTime)
+		{
+			startWildEncounter(*nearestAttack, now);
+			return;
+		}
+		if (nearestAlert && !battleSequenceActive && !captureSequenceActive)
+		{
+			emitGameCue("wild-alert", PokemonType::Dark);
+			setStatus("Wild Umbreon noticed you. Leave its territory or prepare to dodge.");
 		}
 	}
 
@@ -1326,7 +1505,7 @@ GLuint rockTex, umbreonTex;
 				telemetry << "Target hit";
 				break;
 			case BattlePhase::WildWindup:
-				telemetry << "Countering";
+				telemetry << (battleInitiatedByWild ? "Attacking" : "Countering");
 				break;
 			case BattlePhase::WildProjectile:
 				telemetry << pendingWildMove.name;
@@ -1376,6 +1555,17 @@ GLuint rockTex, umbreonTex;
 				telemetry << "Resolving";
 				break;
 			}
+		}
+		else if (overworldThreat)
+		{
+			telemetry << "Wild alert · "
+			          << pokemonSpeciesName(overworldThreat->getSpecies()) << " "
+			          << std::fixed << std::setprecision(1)
+			          << overworldThreatDistance << "m · "
+			          << (overworldThreat->getBehaviorState() ==
+			                      PokemonBehaviorState::Pursue
+			                  ? "Pursuing"
+			                  : "Watching");
 		}
 		else if (Pokemon *target = targetedPokemon())
 		{
@@ -1438,6 +1628,24 @@ GLuint rockTex, umbreonTex;
 			}
 		}, mycam.dodgeCooldownRemaining(), mycam.dodgeCooldownFraction(),
 		   mycam.isDodging() ? 1 : 0, mycam.isInvulnerable() ? 1 : 0);
+
+		const bool threatVisible = overworldThreat && !battleSequenceActive &&
+		                           !captureSequenceActive && !gameFinished;
+		const std::string threatName = threatVisible
+		                                   ? pokemonSpeciesName(
+		                                         overworldThreat->getSpecies())
+		                                   : std::string();
+		const bool threatPursuing =
+		    threatVisible && overworldThreat->getBehaviorState() ==
+		                         PokemonBehaviorState::Pursue;
+		EM_ASM({
+			if (Module.onThreatHud)
+			{
+				Module.onThreatHud(
+					UTF8ToString($0), $1, $2 !== 0, $3 !== 0);
+			}
+		}, threatName.c_str(), overworldThreatDistance,
+		   threatPursuing ? 1 : 0, threatVisible ? 1 : 0);
 
 		const auto &moves = playerBattleMoves();
 		const bool moveInputBusy =
@@ -2621,6 +2829,25 @@ GLuint rockTex, umbreonTex;
 				isUmbreon ? glm::vec2(1.32f, 0.88f)
 				           : glm::vec2(1.45f, 1.05f),
 				0.25f);
+			if (umbreons[i].isThreatening() &&
+			    !isPendingBattleTarget(umbreons[i]) &&
+			    !isPendingCaptureTarget(umbreons[i]))
+			{
+				const bool pursuing = umbreons[i].getBehaviorState() ==
+				                       PokemonBehaviorState::Pursue;
+				const float pulse = 1.0f +
+				                    std::sin(indicatorTime * (pursuing ? 9.0f : 5.0f) +
+				                             static_cast<float>(i)) *
+				                        (pursuing ? 0.10f : 0.06f);
+				drawTargetRing(
+					glm::vec3(position.x,
+					          terrainHeightMap.heightAt(position.x, position.z) + 0.045f,
+					          position.z),
+					(pursuing ? 2.35f : 2.05f) * pulse,
+					pursuing ? glm::vec3(1.0f, 0.15f, 0.12f)
+					          : glm::vec3(1.0f, 0.68f, 0.08f),
+					pursuing ? 0.74f : 0.58f);
+			}
 		}
 
 		for (int i = 0; i < FLYING_POKEMON; ++i)
@@ -2883,13 +3110,19 @@ GLuint rockTex, umbreonTex;
 			PokemonAnimationPose pose = samplePokemonAnimation(animationInput);
 			if (isPendingBattleTarget(umbreons[i]))
 			{
-				applyWildBattlePose(pose, battleVisualSample);
+				applyWildBattlePose(pose, battleVisualSample, pendingWildMove);
 			}
 			const bool renderUmbreon =
 				umbreons[i].getSpecies() == PokemonSpecies::Umbreon;
 			const float creatureScale = renderUmbreon ? 0.55f : 0.65f;
 			const float groundOffset = renderUmbreon ? 0.34f : 0.47f;
 			vec3 wildPosition = umbreons[i].getPos();
+			if (isPendingBattleTarget(umbreons[i]))
+			{
+				wildPosition += wildBattleLungeOffset(
+					wildPosition, battlePlayerHitPosition, battleVisualSample,
+					pendingWildMove);
+			}
 			wildPosition.y = terrainHeightMap.heightAt(wildPosition.x, wildPosition.z) +
 			                 groundOffset + pose.bodyBob;
 			T = glm::translate(glm::mat4(1.0f), wildPosition);
@@ -2944,7 +3177,8 @@ GLuint rockTex, umbreonTex;
 				samplePokemonAnimation(flightAnimationInput);
 			if (isPendingBattleTarget(charizards[i]))
 			{
-				applyWildBattlePose(flightPose, battleVisualSample);
+				applyWildBattlePose(
+					flightPose, battleVisualSample, pendingWildMove);
 			}
 			vec3 flightPosition = charizards[i].getPos();
 			flightPosition.y += flightPose.bodyBob;
@@ -3053,10 +3287,30 @@ GLuint rockTex, umbreonTex;
 			}
 			else if (battleVisualSample.phase == BattlePhase::WildProjectile)
 			{
-				const glm::vec3 position = battleProjectilePosition(
-					battleTargetPosition, battlePlayerHitPosition,
-					battleVisualSample.phaseProgress);
-				drawBattleOrb(position, 0.225f * pulse, wildPalette, 0.90f, 0.08f);
+				if (pendingWildMove.id == BattleMoveId::Bite)
+				{
+					const float progress = battleVisualSample.phaseProgress;
+					const float visibility = glm::clamp(
+						(progress - 0.22f) / 0.38f, 0.0f, 1.0f);
+					const float jawGap =
+						0.48f * (1.0f - easedBattleProgress(progress)) + 0.09f;
+					const float opacity = visibility * (0.72f + pulse * 0.16f);
+					const glm::vec3 biteCenter = battlePlayerHitPosition;
+					drawBattleOrb(
+						biteCenter + glm::vec3(0.0f, jawGap, 0.0f),
+						0.18f * pulse, wildPalette, opacity, 0.72f);
+					drawBattleOrb(
+						biteCenter - glm::vec3(0.0f, jawGap, 0.0f),
+						0.18f * pulse, wildPalette, opacity, 0.72f);
+				}
+				else
+				{
+					const glm::vec3 position = battleProjectilePosition(
+						battleTargetPosition, battlePlayerHitPosition,
+						battleVisualSample.phaseProgress);
+					drawBattleOrb(
+						position, 0.225f * pulse, wildPalette, 0.90f, 0.08f);
+				}
 			}
 			else if (battleVisualSample.phase == BattlePhase::PlayerImpact)
 			{
