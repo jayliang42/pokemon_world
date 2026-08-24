@@ -158,6 +158,10 @@ window title show health, progress, and the remaining inventory. Field Research
 also tracks a super-effective hit, a defeated wild Pokemon, a gravity-assisted
 landing, and the five required captures.
 
+The browser HUD also includes a Field Radar. It continuously points to the
+nearest uncaught, non-fainted research sample and reports its field distance,
+so exploration remains directed even when the target is outside the camera view.
+
 Charizard has a three-move loadout. Ember recovers quickly, Air Slash adds
 Flying-type coverage, and Flamethrower trades the longest cooldown for the
 highest power. Cooldowns begin only when an attack actually starts, and each

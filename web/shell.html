@@ -205,6 +205,66 @@
     .hud-player { left: 18px; bottom: 18px; }
     .hud-target { right: 18px; top: 18px; }
 
+    .field-radar {
+      position: absolute;
+      top: 18px;
+      left: 50%;
+      width: min(246px, 34%);
+      padding: 8px 11px 9px;
+      border: 1px solid rgba(124, 221, 255, 0.36);
+      border-radius: 12px;
+      color: #d4efff;
+      background: linear-gradient(145deg, rgba(7, 27, 44, 0.87), rgba(13, 45, 63, 0.72));
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.30), 0 0 20px rgba(69, 195, 255, 0.09);
+      backdrop-filter: blur(7px);
+      transform: translateX(-50%);
+    }
+
+    .field-radar[hidden] { display: none; }
+    .radar-heading {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 5px;
+      color: #8ed8ff;
+      font-size: 0.58rem;
+      font-weight: 850;
+      letter-spacing: 0.11em;
+    }
+
+    .radar-contact { color: #dcefff; letter-spacing: 0.02em; }
+    .radar-track {
+      position: relative;
+      height: 16px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(58, 176, 255, 0.04), rgba(90, 216, 255, 0.24), rgba(58, 176, 255, 0.04));
+    }
+
+    .radar-track::before {
+      position: absolute;
+      top: 2px;
+      bottom: 2px;
+      left: 50%;
+      width: 1px;
+      content: '';
+      background: rgba(219, 248, 255, 0.82);
+      box-shadow: 0 0 8px rgba(139, 227, 255, 0.9);
+    }
+
+    .radar-blip {
+      position: absolute;
+      top: 3px;
+      left: 50%;
+      width: 10px;
+      height: 10px;
+      border: 2px solid #fff2b1;
+      border-radius: 50%;
+      background: #ffbf50;
+      box-shadow: 0 0 10px rgba(255, 192, 77, 0.95);
+      transform: translateX(-50%);
+      transition: left 120ms ease-out;
+    }
+
     .hud-player.is-dodging,
     .hud-player.is-invulnerable {
       border-color: rgba(116, 226, 255, 0.78);
@@ -531,6 +591,8 @@
       .hud-card { width: min(210px, 48%); padding: 8px 9px 9px; }
       .hud-player { left: 9px; bottom: 9px; }
       .hud-target { right: 9px; top: 9px; }
+      .field-radar { top: 9px; width: min(180px, 40%); padding: 6px 8px; }
+      .radar-heading { margin-bottom: 4px; font-size: 0.48rem; }
       .threat-alert { top: 76px; min-width: 0; width: 58%; padding: 6px 9px; }
       .threat-icon { width: 18px; height: 18px; flex-basis: 18px; font-size: 0.64rem; }
       .threat-label { font-size: 0.48rem; }
@@ -602,6 +664,10 @@
               <span id="threat-label" class="threat-label">WILD ALERT</span>
               <span id="threat-detail" class="threat-detail">Umbreon is watching</span>
             </span>
+          </section>
+          <section id="field-radar" class="field-radar" aria-label="Nearest research sample">
+            <div class="radar-heading"><span>FIELD RADAR</span><span id="radar-contact" class="radar-contact">Scanning</span></div>
+            <div class="radar-track" aria-hidden="true"><span id="radar-blip" class="radar-blip"></span></div>
           </section>
           <section id="player-hud" class="hud-card hud-player">
             <div class="hud-heading">
@@ -713,6 +779,9 @@
     const threatAlert = document.getElementById('threat-alert');
     const threatLabel = document.getElementById('threat-label');
     const threatDetail = document.getElementById('threat-detail');
+    const fieldRadar = document.getElementById('field-radar');
+    const radarContact = document.getElementById('radar-contact');
+    const radarBlip = document.getElementById('radar-blip');
     const saveStateElement = document.getElementById('save-state');
     const audioToggle = document.getElementById('audio-toggle');
     const missionCount = document.getElementById('mission-count');
@@ -753,6 +822,16 @@
       row.classList.toggle('is-complete', complete);
       row.querySelector('.mission-marker').textContent = complete ? '✓' : '•';
       row.querySelector('.mission-value').textContent = `${current} / ${target}`;
+    }
+
+    function updateFieldRadar(pokemonName, distance, bearingRadians, visible) {
+      fieldRadar.hidden = !visible;
+      if (!visible) return;
+      const safeDistance = Math.max(0, Number(distance) || 0);
+      const bearing = Math.max(-Math.PI, Math.min(Math.PI, Number(bearingRadians) || 0));
+      const offset = Math.max(-40, Math.min(40, bearing / Math.PI * 40));
+      radarContact.textContent = `${pokemonName || 'Pokemon'} · ${safeDistance.toFixed(1)}m`;
+      radarBlip.style.left = `${50 + offset}%`;
     }
 
     function updateMoveSlot(slotIndex, moveName, moveType, movePower,
@@ -963,6 +1042,9 @@
           threatLabel.textContent = pursuing ? 'DANGER · PURSUING' : 'WILD ALERT';
           threatDetail.textContent = `${pokemonName || 'Wild Pokemon'} · ${safeDistance.toFixed(1)}m · ${pursuing ? 'Shift to dodge' : 'Watching you'}`;
         }
+      },
+      onFieldRadar: function (pokemonName, distance, bearingRadians, visible) {
+        updateFieldRadar(pokemonName, distance, bearingRadians, visible);
       },
       onGameCue: function (cue, moveType) {
         playGameCue(cue, moveType);

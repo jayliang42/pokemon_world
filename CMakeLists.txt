@@ -63,6 +63,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       "${CMAKE_SOURCE_DIR}/ext/glm/include")
   add_test(NAME pokemon_target_selection COMMAND pokemon_targeting_tests)
 
+  add_executable(field_radar_tests
+      tests/field_radar_test.cpp
+      src/FieldRadar.cpp)
+  target_include_directories(field_radar_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME pokemon_field_radar COMMAND field_radar_tests)
+
   add_executable(capture_mechanics_tests
       tests/capture_mechanics_test.cpp
       src/CaptureMechanics.cpp)

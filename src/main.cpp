@@ -24,6 +24,7 @@ Modified by: <Zhisong Liang>
 #include "BattleSequence.h"
 #include "CaptureMechanics.h"
 #include "CaptureSequence.h"
+#include "FieldRadar.h"
 #include "GameSave.h"
 #include "GameSaveStorage.h"
 #include "Program.h"
@@ -1649,6 +1650,45 @@ GLuint rockTex, umbreonTex;
 		return currentTarget.index < NUM_POKEMON ? &umbreons[currentTarget.index] : nullptr;
 	}
 
+	FieldRadarContact nearestResearchRadarContact() const
+	{
+		std::vector<FieldRadarCandidate> candidates;
+		candidates.reserve(NUM_POKEMON + FLYING_POKEMON);
+		for (int index = 0; index < NUM_POKEMON; ++index)
+		{
+			FieldRadarCandidate candidate;
+			candidate.id = index;
+			candidate.available = umbreons[index].getCaught() == 0 &&
+			                      !umbreons[index].isFainted();
+			candidate.position = pokemonWorldPosition(umbreons[index]);
+			candidates.push_back(candidate);
+		}
+		for (int index = 0; index < FLYING_POKEMON; ++index)
+		{
+			FieldRadarCandidate candidate;
+			candidate.id = NUM_POKEMON + index;
+			candidate.available = charizards[index].getCaught() == 0 &&
+			                      !charizards[index].isFainted();
+			candidate.position = pokemonWorldPosition(charizards[index]);
+			candidates.push_back(candidate);
+		}
+		return selectNearestFieldRadarContact(mypos, mycam.yaw(), candidates);
+	}
+
+	Pokemon *pokemonForRadarContact(const FieldRadarContact &contact)
+	{
+		if (!contact.valid())
+		{
+			return nullptr;
+		}
+		if (contact.id < NUM_POKEMON)
+		{
+			return &umbreons[contact.id];
+		}
+		const int flyingIndex = contact.id - NUM_POKEMON;
+		return flyingIndex < FLYING_POKEMON ? &charizards[flyingIndex] : nullptr;
+	}
+
 	void updateWebTelemetry()
 	{
 #ifdef __EMSCRIPTEN__
@@ -1816,6 +1856,21 @@ GLuint rockTex, umbreonTex;
 			}
 		}, threatName.c_str(), overworldThreatDistance,
 		   threatPursuing ? 1 : 0, threatVisible ? 1 : 0);
+
+		const FieldRadarContact radarContact = nearestResearchRadarContact();
+		Pokemon *radarPokemon = pokemonForRadarContact(radarContact);
+		const bool radarVisible = radarPokemon != nullptr && !gameFinished;
+		const std::string radarName = radarVisible
+		                                  ? pokemonSpeciesName(radarPokemon->getSpecies())
+		                                  : std::string();
+		EM_ASM({
+			if (Module.onFieldRadar)
+			{
+				Module.onFieldRadar(
+					UTF8ToString($0), $1, $2, $3 !== 0);
+			}
+		}, radarName.c_str(), radarContact.distance, radarContact.bearingRadians,
+		   radarVisible ? 1 : 0);
 
 		const auto &moves = playerBattleMoves();
 		const bool moveInputBusy =
