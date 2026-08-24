@@ -114,6 +114,10 @@ The native build remains available for local development. The browser build
 uses the same models, textures, movement, and capture rules, but runs its main
 loop through the browser animation lifecycle.
 
+The field also runs a five-minute day/night cycle. The sky, sun, ambient light,
+fog, terrain, and Pokemon use the same lighting sample each frame, so dusk and
+night reduce visibility consistently instead of only recoloring the background.
+
 ## Visual assets
 
 The original Charizard and Umbreon models remain in the project. Bulbasaur is

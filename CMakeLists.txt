@@ -118,6 +118,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
   target_include_directories(game_save_storage_tests PRIVATE
       "${CMAKE_SOURCE_DIR}/src")
   add_test(NAME pokemon_game_save_storage COMMAND game_save_storage_tests)
+
+  add_executable(world_lighting_tests
+      tests/world_lighting_test.cpp
+      src/WorldLighting.cpp)
+  target_include_directories(world_lighting_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME world_lighting_cycle COMMAND world_lighting_tests)
 endif()
 
 # We don't really need to include header and resource files to build, but it's

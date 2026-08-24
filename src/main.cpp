@@ -35,6 +35,7 @@ Modified by: <Zhisong Liang>
 #include "ResearchMission.h"
 #include "TerrainHeightMap.h"
 #include "ThirdPersonCamera.h"
+#include "WorldLighting.h"
 
 #include "WindowManager.h"
 #include "Shape.h"
@@ -474,6 +475,7 @@ GLuint rockTex, umbreonTex;
 	GLuint bulbasaurEyeDarkTex = 0;
 	TerrainHeightMap terrainHeightMap;
 	std::string resourceDirectory;
+	WorldLighting sceneLighting = sampleWorldLighting(0.25f);
 	int caughtCount = 0;
 	int pokeballs = STARTING_POKEBALLS;
 	bool captureRequested = false;
@@ -763,19 +765,38 @@ GLuint rockTex, umbreonTex;
 		program->addUniform("fogEnd");
 	}
 
+	void addSkyLightingUniforms(const std::shared_ptr<Program> &program)
+	{
+		program->addUniform("horizonColor");
+		program->addUniform("zenithColor");
+		program->addUniform("sunDirection");
+		program->addUniform("sunColor");
+		program->addUniform("daylight");
+	}
+
 	void applySceneLighting(const std::shared_ptr<Program> &program, const glm::mat4 &view)
 	{
-		const glm::vec3 sunDirectionWorld = glm::normalize(glm::vec3(-0.38f, 0.82f, -0.42f));
-		const glm::vec3 sunDirectionView = glm::normalize(glm::mat3(view) * sunDirectionWorld);
-		const glm::vec3 sunColor(1.0f, 0.91f, 0.74f);
-		const glm::vec3 ambientColor(0.52f, 0.60f, 0.70f);
-		const glm::vec3 fogColor(0.66f, 0.84f, 0.96f);
+		const glm::vec3 sunDirectionView = glm::normalize(
+			glm::mat3(view) * sceneLighting.sunDirection);
 		glUniform3fv(program->getUniform("sunDirection"), 1, &sunDirectionView[0]);
-		glUniform3fv(program->getUniform("sunColor"), 1, &sunColor[0]);
-		glUniform3fv(program->getUniform("ambientColor"), 1, &ambientColor[0]);
-		glUniform3fv(program->getUniform("fogColor"), 1, &fogColor[0]);
-		glUniform1f(program->getUniform("fogStart"), 26.0f);
-		glUniform1f(program->getUniform("fogEnd"), 62.0f);
+		glUniform3fv(program->getUniform("sunColor"), 1, &sceneLighting.sunColor[0]);
+		glUniform3fv(program->getUniform("ambientColor"), 1, &sceneLighting.ambientColor[0]);
+		glUniform3fv(program->getUniform("fogColor"), 1, &sceneLighting.fogColor[0]);
+		glUniform1f(program->getUniform("fogStart"), sceneLighting.fogStart);
+		glUniform1f(program->getUniform("fogEnd"), sceneLighting.fogEnd);
+	}
+
+	void applySkyLighting(const std::shared_ptr<Program> &program)
+	{
+		glUniform3fv(program->getUniform("horizonColor"), 1,
+		             &sceneLighting.skyHorizonColor[0]);
+		glUniform3fv(program->getUniform("zenithColor"), 1,
+		             &sceneLighting.skyZenithColor[0]);
+		glUniform3fv(program->getUniform("sunDirection"), 1,
+		             &sceneLighting.sunDirection[0]);
+		glUniform3fv(program->getUniform("sunColor"), 1,
+		             &sceneLighting.sunColor[0]);
+		glUniform1f(program->getUniform("daylight"), sceneLighting.daylight);
 	}
 
 	void applyCharizardAnimation(const std::shared_ptr<Program> &program,
@@ -2461,6 +2482,7 @@ GLuint rockTex, umbreonTex;
 		prog->addUniform("V");
 		prog->addUniform("M");
 		prog->addUniform("time");
+		addSkyLightingUniforms(prog);
 		prog->addAttribute("vertPos");
 		prog->addAttribute("vertNor");
 		prog->addAttribute("vertTex");
@@ -2617,9 +2639,12 @@ GLuint rockTex, umbreonTex;
 		}
 		float aspect = width / (float)height;
 		glViewport(0, 0, width, height);
+		const double actionNow = glfwGetTime();
+		sceneLighting = sampleWorldLighting(worldLightingCyclePhase(actionNow));
 
 		// Clear framebuffer.
-		glClearColor(0.8f, 0.8f, 1.0f, 1.0f);
+		glClearColor(sceneLighting.fogColor.r, sceneLighting.fogColor.g,
+		             sceneLighting.fogColor.b, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		// Create the matrix stacks - please leave these alone for now
@@ -2661,7 +2686,6 @@ GLuint rockTex, umbreonTex;
 		playerAnimationInput.phase = playerAnimationPhase;
 		PokemonAnimationPose playerPose =
 			samplePokemonAnimation(playerAnimationInput);
-		const double actionNow = glfwGetTime();
 		const PlayerMotionEvents &motionEvents = mycam.motionEvents();
 		if (motionEvents.dodgeStarted)
 		{
@@ -2740,7 +2764,8 @@ GLuint rockTex, umbreonTex;
 		glUniformMatrix4fv(prog->getUniform("P"), 1, GL_FALSE, &P[0][0]);
 		glUniformMatrix4fv(prog->getUniform("V"), 1, GL_FALSE, &V[0][0]);
 		glUniformMatrix4fv(prog->getUniform("M"), 1, GL_FALSE, &M[0][0]);
-		glUniform1f(prog->getUniform("time"), static_cast<float>(glfwGetTime()));
+		glUniform1f(prog->getUniform("time"), static_cast<float>(actionNow));
+		applySkyLighting(prog);
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, Texture);
 
