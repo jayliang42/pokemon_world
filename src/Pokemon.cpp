@@ -20,10 +20,16 @@ constexpr float GROUND_WANDER_SPEED = 1.65f;
 constexpr float GROUND_FLEE_SPEED = 4.2f;
 constexpr float FLYING_WANDER_SPEED = 2.8f;
 constexpr float FLYING_FLEE_SPEED = 4.8f;
+constexpr float UMBREON_PURSUE_SPEED = 2.7f;
 constexpr float GROUND_ACCELERATION = 5.5f;
 constexpr float FLYING_ACCELERATION = 4.0f;
 constexpr float FLEE_ENTER_DISTANCE = 5.5f;
 constexpr float FLEE_EXIT_DISTANCE = 9.0f;
+constexpr float UMBREON_ALERT_DISTANCE = 10.0f;
+constexpr float UMBREON_DISENGAGE_DISTANCE = 13.0f;
+constexpr float UMBREON_ATTACK_DISTANCE = 5.2f;
+constexpr float UMBREON_ALERT_DURATION = 0.7f;
+constexpr float UMBREON_ATTACK_COOLDOWN = 1.8f;
 constexpr float ARRIVAL_DISTANCE = 0.65f;
 
 float clampValue(float value, float minimum, float maximum)
@@ -100,30 +106,33 @@ Pokemon::Pokemon(int flyPokemon, int pokemonID, std::uint32_t seed)
 	}
 }
 
-void Pokemon::update(double deltaSeconds)
+PokemonBehaviorEvents Pokemon::update(double deltaSeconds)
 {
-	update(deltaSeconds, glm::vec3(1000.0f, 0.0f, 1000.0f));
+	return update(deltaSeconds, glm::vec3(1000.0f, 0.0f, 1000.0f));
 }
 
-void Pokemon::update(double deltaSeconds, const glm::vec3 &playerPosition)
+PokemonBehaviorEvents Pokemon::update(double deltaSeconds,
+	                                  const glm::vec3 &playerPosition)
 {
+	PokemonBehaviorEvents events;
 	if (caught_ || isFainted())
 	{
 		velocity_ = glm::vec3(0.0f);
-		return;
+		return events;
 	}
 
 	const float step = clampValue(static_cast<float>(deltaSeconds), 0.0f, MAX_DELTA_SECONDS);
 	if (step <= 0.0f)
 	{
-		return;
+		return events;
 	}
 	age_ += step;
-	updateBehavior(step, playerPosition);
+	events = updateBehavior(step, playerPosition);
 	integrateMotion(step, desiredVelocity(playerPosition));
 	motionPhase_ = advancePokemonAnimationPhase(
 		motionPhase_, step, flying_, behaviorState_ == PokemonBehaviorState::Flee,
 		getSpeedRatio());
+	return events;
 }
 
 void Pokemon::setCaught(int flag)
@@ -143,6 +152,19 @@ void Pokemon::startle()
 	}
 	enterFlee();
 	stateTimer_ = 1.5f;
+}
+
+void Pokemon::coolDownAfterAttack()
+{
+	if (caught_ || isFainted() || flying_ ||
+	    getSpecies() != PokemonSpecies::Umbreon)
+	{
+		return;
+	}
+	behaviorState_ = PokemonBehaviorState::Alert;
+	stateTimer_ = UMBREON_ATTACK_COOLDOWN;
+	destination_ = position_;
+	velocity_ = glm::vec3(0.0f);
 }
 
 int Pokemon::applyDamage(int amount)
@@ -248,19 +270,33 @@ float Pokemon::getMotionPhase() const
 
 float Pokemon::getSpeedRatio() const
 {
-	const float speedLimit = flying_
-	                           ? (behaviorState_ == PokemonBehaviorState::Flee
-	                                  ? FLYING_FLEE_SPEED
-	                                  : FLYING_WANDER_SPEED)
-	                           : (behaviorState_ == PokemonBehaviorState::Flee
-	                                  ? GROUND_FLEE_SPEED
-	                                  : GROUND_WANDER_SPEED);
+	float speedLimit = GROUND_WANDER_SPEED;
+	if (flying_)
+	{
+		speedLimit = behaviorState_ == PokemonBehaviorState::Flee
+		                 ? FLYING_FLEE_SPEED
+		                 : FLYING_WANDER_SPEED;
+	}
+	else if (behaviorState_ == PokemonBehaviorState::Flee)
+	{
+		speedLimit = GROUND_FLEE_SPEED;
+	}
+	else if (behaviorState_ == PokemonBehaviorState::Pursue)
+	{
+		speedLimit = UMBREON_PURSUE_SPEED;
+	}
 	return speedLimit > 0.0f ? clampValue(glm::length(velocity_) / speedLimit, 0.0f, 1.0f) : 0.0f;
 }
 
 PokemonBehaviorState Pokemon::getBehaviorState() const
 {
 	return behaviorState_;
+}
+
+bool Pokemon::isThreatening() const
+{
+	return behaviorState_ == PokemonBehaviorState::Alert ||
+	       behaviorState_ == PokemonBehaviorState::Pursue;
 }
 
 bool Pokemon::isFlying() const
@@ -311,30 +347,100 @@ void Pokemon::enterFlee()
 	stateTimer_ = 1.0f;
 }
 
-void Pokemon::updateBehavior(float deltaSeconds, const glm::vec3 &playerPosition)
+PokemonBehaviorEvents Pokemon::updateBehavior(
+	float deltaSeconds, const glm::vec3 &playerPosition)
 {
+	PokemonBehaviorEvents events;
 	const float playerDistance = horizontalDistance(position_, playerPosition);
+	if (behaviorState_ == PokemonBehaviorState::Flee)
+	{
+		const float enterDistance =
+		    flying_ ? FLEE_ENTER_DISTANCE + 1.5f : FLEE_ENTER_DISTANCE;
+		if (playerDistance < enterDistance)
+		{
+			stateTimer_ = 1.0f;
+		}
+		else
+		{
+			stateTimer_ -= deltaSeconds;
+			if (playerDistance > FLEE_EXIT_DISTANCE && stateTimer_ <= 0.0f)
+			{
+				chooseWanderDestination();
+			}
+		}
+		return events;
+	}
+
+	const bool territorialUmbreon =
+	    !flying_ && getSpecies() == PokemonSpecies::Umbreon;
+	if (territorialUmbreon)
+	{
+		const glm::vec2 toPlayer(playerPosition.x - position_.x,
+		                         playerPosition.z - position_.z);
+		if (isThreatening() && glm::length(toPlayer) > 0.001f)
+		{
+			targetHeading_ = std::atan2(toPlayer.x, toPlayer.y);
+		}
+
+		if (behaviorState_ == PokemonBehaviorState::Alert)
+		{
+			if (playerDistance > UMBREON_DISENGAGE_DISTANCE)
+			{
+				chooseWanderDestination();
+				return events;
+			}
+			stateTimer_ -= deltaSeconds;
+			if (stateTimer_ <= 0.0f)
+			{
+				behaviorState_ = PokemonBehaviorState::Pursue;
+				stateTimer_ = 0.0f;
+			}
+			return events;
+		}
+
+		if (behaviorState_ == PokemonBehaviorState::Pursue)
+		{
+			if (playerDistance > UMBREON_DISENGAGE_DISTANCE)
+			{
+				chooseWanderDestination();
+				return events;
+			}
+			stateTimer_ = std::max(0.0f, stateTimer_ - deltaSeconds);
+			if (playerDistance <= UMBREON_ATTACK_DISTANCE && stateTimer_ <= 0.0f)
+			{
+				events.attackReady = true;
+				stateTimer_ = UMBREON_ATTACK_COOLDOWN;
+			}
+			return events;
+		}
+
+		if (playerDistance < UMBREON_ALERT_DISTANCE)
+		{
+			behaviorState_ = PokemonBehaviorState::Alert;
+			stateTimer_ = UMBREON_ALERT_DURATION;
+			destination_ = position_;
+			velocity_ = glm::vec3(0.0f);
+			if (glm::length(toPlayer) > 0.001f)
+			{
+				targetHeading_ = std::atan2(toPlayer.x, toPlayer.y);
+			}
+			events.alertStarted = true;
+			return events;
+		}
+	}
+
 	const float enterDistance = flying_ ? FLEE_ENTER_DISTANCE + 1.5f : FLEE_ENTER_DISTANCE;
-	if (playerDistance < enterDistance)
+	if (!territorialUmbreon && playerDistance < enterDistance)
 	{
 		if (behaviorState_ != PokemonBehaviorState::Flee)
 		{
 			enterFlee();
 		}
 		stateTimer_ = 1.0f;
-		return;
+		return events;
 	}
 
 	stateTimer_ -= deltaSeconds;
-	if (behaviorState_ == PokemonBehaviorState::Flee)
-	{
-		if (playerDistance > FLEE_EXIT_DISTANCE && stateTimer_ <= 0.0f)
-		{
-			chooseWanderDestination();
-		}
-		return;
-	}
-
 	if ((behaviorState_ == PokemonBehaviorState::Wander && isAtDestination()) ||
 	    stateTimer_ <= 0.0f)
 	{
@@ -347,11 +453,13 @@ void Pokemon::updateBehavior(float deltaSeconds, const glm::vec3 &playerPosition
 			chooseWanderDestination();
 		}
 	}
+	return events;
 }
 
 glm::vec3 Pokemon::desiredVelocity(const glm::vec3 &playerPosition) const
 {
-	if (behaviorState_ == PokemonBehaviorState::Idle)
+	if (behaviorState_ == PokemonBehaviorState::Idle ||
+	    behaviorState_ == PokemonBehaviorState::Alert)
 	{
 		return glm::vec3(0.0f);
 	}
@@ -370,6 +478,17 @@ glm::vec3 Pokemon::desiredVelocity(const glm::vec3 &playerPosition) const
 		const glm::vec3 tangent(-direction.z, 0.0f, direction.x);
 		direction = glm::normalize(direction + tangent * std::sin(age_ * 2.1f + motionPhase_) * 0.22f);
 		speed = flying_ ? FLYING_FLEE_SPEED : GROUND_FLEE_SPEED;
+	}
+	else if (behaviorState_ == PokemonBehaviorState::Pursue)
+	{
+		direction = playerPosition - position_;
+		direction.y = 0.0f;
+		if (glm::length(direction) <= UMBREON_ATTACK_DISTANCE)
+		{
+			return glm::vec3(0.0f);
+		}
+		direction = glm::normalize(direction);
+		speed = UMBREON_PURSUE_SPEED;
 	}
 	else
 	{
@@ -431,16 +550,26 @@ void Pokemon::integrateMotion(float deltaSeconds, const glm::vec3 &desired)
 	{
 		position_.y = 0.0f;
 	}
-	if (reachedBoundary && behaviorState_ != PokemonBehaviorState::Flee)
+	if (reachedBoundary &&
+	    (behaviorState_ == PokemonBehaviorState::Idle ||
+	     behaviorState_ == PokemonBehaviorState::Wander))
 	{
 		stateTimer_ = 0.0f;
 	}
 
 	const glm::vec2 planarVelocity(velocity_.x, velocity_.z);
-	if (glm::length(planarVelocity) > 0.05f)
+	const bool moving = glm::length(planarVelocity) > 0.05f;
+	if (moving)
 	{
 		targetHeading_ = std::atan2(velocity_.x, velocity_.z);
-		const float turnRate = behaviorState_ == PokemonBehaviorState::Flee ? 4.5f : 2.6f;
+	}
+	if (moving || behaviorState_ == PokemonBehaviorState::Alert)
+	{
+		const float turnRate = behaviorState_ == PokemonBehaviorState::Flee
+		                           ? 4.5f
+		                           : (behaviorState_ == PokemonBehaviorState::Alert
+		                                  ? 4.0f
+		                                  : 2.6f);
 		const float turn = shortestAngle(targetHeading_ - heading_);
 		heading_ += clampValue(turn, -turnRate * deltaSeconds, turnRate * deltaSeconds);
 		heading_ = shortestAngle(heading_);

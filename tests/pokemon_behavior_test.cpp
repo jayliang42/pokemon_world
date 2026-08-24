@@ -64,7 +64,7 @@ void testPokemonSpeciesAssignmentIsStable()
 
 void testNearbyPlayerTriggersSmoothFleeMotion()
 {
-	Pokemon pokemon(0, 2, 99u);
+	Pokemon pokemon(0, 1, 99u);
 	pokemon.setPosition(glm::vec3(2.0f, 0.0f, 0.0f));
 	const glm::vec3 playerPosition(0.0f);
 	const float startingDistance = horizontalDistance(pokemon.getPos(), playerPosition);
@@ -84,6 +84,87 @@ void testNearbyPlayerTriggersSmoothFleeMotion()
 	           "flee steering increases distance from the player");
 	expectTrue(glm::length(pokemon.getVelocity()) <= 4.2001f,
 	           "flee speed remains under its configured cap");
+}
+
+void testTerritorialUmbreonAlertsBeforePursuit()
+{
+	Pokemon pokemon(0, 2, 99u);
+	pokemon.setPosition(glm::vec3(8.0f, 0.0f, 0.0f));
+	const glm::vec3 playerPosition(0.0f);
+	const float startingDistance = horizontalDistance(pokemon.getPos(), playerPosition);
+
+	const PokemonBehaviorEvents firstUpdate = pokemon.update(0.05, playerPosition);
+	expectTrue(pokemon.getBehaviorState() == PokemonBehaviorState::Alert,
+	           "nearby player puts a territorial Umbreon on alert");
+	expectTrue(firstUpdate.alertStarted && !firstUpdate.attackReady,
+	           "entering alert emits one warning before any attack");
+	expectNear(glm::length(pokemon.getVelocity()), 0.0f, 0.0001f,
+	           "Umbreon pauses during its initial warning");
+
+	for (int i = 0; i < 22; ++i)
+	{
+		pokemon.update(0.05, playerPosition);
+	}
+	expectTrue(pokemon.getBehaviorState() == PokemonBehaviorState::Pursue,
+	           "Umbreon pursues after its warning window");
+	expectTrue(horizontalDistance(pokemon.getPos(), playerPosition) < startingDistance,
+	           "pursuit closes distance to the player");
+	expectTrue(glm::length(pokemon.getVelocity()) <= 2.7001f,
+	           "pursuit remains under its configured speed cap");
+}
+
+void testTerritorialUmbreonAttackUsesCooldown()
+{
+	Pokemon pokemon(0, 2, 199u);
+	pokemon.setPosition(glm::vec3(4.5f, 0.0f, 0.0f));
+	const glm::vec3 playerPosition(0.0f);
+	bool attackReady = false;
+	for (int i = 0; i < 30; ++i)
+	{
+		attackReady = pokemon.update(0.05, playerPosition).attackReady || attackReady;
+	}
+	expectTrue(attackReady,
+	           "Umbreon signals an attack after warning a player in range");
+
+	pokemon.coolDownAfterAttack();
+	expectTrue(pokemon.getBehaviorState() == PokemonBehaviorState::Alert,
+	           "an attacking Umbreon returns to a watchful cooldown");
+	bool attackedDuringCooldown = false;
+	for (int i = 0; i < 24; ++i)
+	{
+		attackedDuringCooldown =
+		    pokemon.update(0.05, playerPosition).attackReady ||
+		    attackedDuringCooldown;
+	}
+	expectTrue(!attackedDuringCooldown,
+	           "Umbreon cannot immediately repeat its attack during cooldown");
+
+	bool attackedAfterCooldown = false;
+	for (int i = 0; i < 30; ++i)
+	{
+		attackedAfterCooldown =
+		    pokemon.update(0.05, playerPosition).attackReady ||
+		    attackedAfterCooldown;
+	}
+	expectTrue(attackedAfterCooldown,
+	           "Umbreon can attack again after its cooldown expires");
+}
+
+void testTerritorialUmbreonDisengagesAndCanBeStartled()
+{
+	Pokemon pokemon(0, 2, 299u);
+	pokemon.setPosition(glm::vec3(8.0f, 0.0f, 0.0f));
+	pokemon.update(0.05, glm::vec3(0.0f));
+	pokemon.update(0.05, glm::vec3(40.0f, 0.0f, 40.0f));
+	expectTrue(!pokemon.isThreatening(),
+	           "Umbreon disengages when the player leaves its territory");
+
+	pokemon.setPosition(glm::vec3(4.0f, 0.0f, 0.0f));
+	pokemon.update(0.05, glm::vec3(0.0f));
+	pokemon.startle();
+	pokemon.update(0.05, glm::vec3(0.0f));
+	expectTrue(pokemon.getBehaviorState() == PokemonBehaviorState::Flee,
+	           "capture and battle reactions override territorial aggression");
 }
 
 void testStartleForcesAFieldPokemonToFlee()
@@ -273,6 +354,9 @@ int main()
 	testDeterministicSpawnAvoidsPlayerAndFieldEdge();
 	testPokemonSpeciesAssignmentIsStable();
 	testNearbyPlayerTriggersSmoothFleeMotion();
+	testTerritorialUmbreonAlertsBeforePursuit();
+	testTerritorialUmbreonAttackUsesCooldown();
+	testTerritorialUmbreonDisengagesAndCanBeStartled();
 	testStartleForcesAFieldPokemonToFlee();
 	testHealthDamageFaintingAndRestore();
 	testFleeStateReturnsToWanderAfterReachingSafety();

@@ -796,10 +796,12 @@ GLuint rockTex, umbreonTex;
 		switch (candidate.getBehaviorState())
 		{
 		case PokemonBehaviorState::Idle:
+		case PokemonBehaviorState::Alert:
 			return CaptureActivity::Idle;
 		case PokemonBehaviorState::Flee:
 			return CaptureActivity::Fleeing;
 		case PokemonBehaviorState::Wander:
+		case PokemonBehaviorState::Pursue:
 			return CaptureActivity::Moving;
 		}
 		return CaptureActivity::Moving;

@@ -10,7 +10,15 @@ enum class PokemonBehaviorState
 {
 	Idle,
 	Wander,
+	Alert,
+	Pursue,
 	Flee,
+};
+
+struct PokemonBehaviorEvents
+{
+	bool alertStarted = false;
+	bool attackReady = false;
 };
 
 class Pokemon
@@ -19,10 +27,12 @@ public:
 	Pokemon();
 	Pokemon(int flyPokemon, int pokemonID, std::uint32_t seed = 0);
 
-	void update(double deltaSeconds);
-	void update(double deltaSeconds, const glm::vec3 &playerPosition);
+	PokemonBehaviorEvents update(double deltaSeconds);
+	PokemonBehaviorEvents update(double deltaSeconds,
+	                             const glm::vec3 &playerPosition);
 	void setCaught(int flag);
 	void startle();
+	void coolDownAfterAttack();
 	int applyDamage(int amount);
 	bool setHealth(int health);
 	void restoreHealth();
@@ -40,6 +50,7 @@ public:
 	float getMotionPhase() const;
 	float getSpeedRatio() const;
 	PokemonBehaviorState getBehaviorState() const;
+	bool isThreatening() const;
 	bool isFlying() const;
 	int getID() const;
 	PokemonSpecies getSpecies() const;
@@ -49,7 +60,8 @@ private:
 	void chooseIdle();
 	void chooseWanderDestination();
 	void enterFlee();
-	void updateBehavior(float deltaSeconds, const glm::vec3 &playerPosition);
+	PokemonBehaviorEvents updateBehavior(float deltaSeconds,
+	                                     const glm::vec3 &playerPosition);
 	glm::vec3 desiredVelocity(const glm::vec3 &playerPosition) const;
 	void integrateMotion(float deltaSeconds, const glm::vec3 &desiredVelocity);
 	bool isAtDestination() const;
