@@ -114,6 +114,13 @@ PokemonBehaviorEvents Pokemon::update(double deltaSeconds)
 PokemonBehaviorEvents Pokemon::update(double deltaSeconds,
 	                                  const glm::vec3 &playerPosition)
 {
+	return update(deltaSeconds, playerPosition, {});
+}
+
+PokemonBehaviorEvents Pokemon::update(
+	double deltaSeconds, const glm::vec3 &playerPosition,
+	const std::vector<PokemonNavigationBlocker> &navigationBlockers)
+{
 	PokemonBehaviorEvents events;
 	if (caught_ || isFainted())
 	{
@@ -128,7 +135,13 @@ PokemonBehaviorEvents Pokemon::update(double deltaSeconds,
 	}
 	age_ += step;
 	events = updateBehavior(step, playerPosition);
-	integrateMotion(step, desiredVelocity(playerPosition));
+	glm::vec3 desired = desiredVelocity(playerPosition);
+	if (!flying_)
+	{
+		desired = steerGroundPokemonVelocity(
+			position_, desired, navigationRadius(), pokemonID_, navigationBlockers);
+	}
+	integrateMotion(step, desired, navigationBlockers);
 	motionPhase_ = advancePokemonAnimationPhase(
 		motionPhase_, step, flying_, behaviorState_ == PokemonBehaviorState::Flee,
 		getSpeedRatio());
@@ -514,7 +527,9 @@ glm::vec3 Pokemon::desiredVelocity(const glm::vec3 &playerPosition) const
 	return direction * speed;
 }
 
-void Pokemon::integrateMotion(float deltaSeconds, const glm::vec3 &desired)
+void Pokemon::integrateMotion(
+	float deltaSeconds, const glm::vec3 &desired,
+	const std::vector<PokemonNavigationBlocker> &navigationBlockers)
 {
 	const float acceleration = flying_ ? FLYING_ACCELERATION : GROUND_ACCELERATION;
 	velocity_ = moveToward(velocity_, desired, acceleration * deltaSeconds);
@@ -524,6 +539,27 @@ void Pokemon::integrateMotion(float deltaSeconds, const glm::vec3 &desired)
 	}
 
 	position_ += velocity_ * deltaSeconds;
+	if (!flying_)
+	{
+		const PokemonNavigationResult navigation =
+			resolveGroundPokemonPosition(
+				glm::vec2(position_.x, position_.z),
+				navigationRadius(), pokemonID_, navigationBlockers);
+		position_.x = navigation.position.x;
+		position_.z = navigation.position.y;
+		if (navigation.collided)
+		{
+			glm::vec2 planarVelocity(velocity_.x, velocity_.z);
+			const float inwardSpeed =
+				glm::dot(planarVelocity, navigation.collisionNormal);
+			if (inwardSpeed < 0.0f)
+			{
+				planarVelocity -= navigation.collisionNormal * inwardSpeed;
+				velocity_.x = planarVelocity.x;
+				velocity_.z = planarVelocity.y;
+			}
+		}
+	}
 	bool reachedBoundary = false;
 	if (position_.x < -FIELD_LIMIT || position_.x > FIELD_LIMIT)
 	{
@@ -579,4 +615,9 @@ void Pokemon::integrateMotion(float deltaSeconds, const glm::vec3 &desired)
 bool Pokemon::isAtDestination() const
 {
 	return glm::distance(position_, destination_) <= ARRIVAL_DISTANCE;
+}
+
+float Pokemon::navigationRadius() const
+{
+	return getSpecies() == PokemonSpecies::Umbreon ? 0.60f : 0.54f;
 }

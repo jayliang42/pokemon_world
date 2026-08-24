@@ -1426,6 +1426,8 @@ GLuint rockTex, umbreonTex;
 			}
 		};
 		const CaptureSequenceSample captureSample = currentCaptureSample(now);
+		const std::vector<PokemonNavigationBlocker> navigationBlockers =
+			makeGroundPokemonNavigationBlockers();
 		for (int i = 0; i < NUM_POKEMON; ++i)
 		{
 			if (isPendingBattleTarget(umbreons[i]) ||
@@ -1435,7 +1437,7 @@ GLuint rockTex, umbreonTex;
 				continue;
 			}
 			const PokemonBehaviorEvents events =
-			    umbreons[i].update(deltaSeconds, mypos);
+			    umbreons[i].update(deltaSeconds, mypos, navigationBlockers);
 			collectBehavior(umbreons[i], events);
 		}
 		for (int i = 0; i < FLYING_POKEMON; ++i)
@@ -1463,6 +1465,38 @@ GLuint rockTex, umbreonTex;
 			emitGameCue("wild-alert", PokemonType::Dark);
 			setStatus("Wild Umbreon noticed you. Leave its territory or prepare to dodge.");
 		}
+	}
+
+	std::vector<PokemonNavigationBlocker> makeGroundPokemonNavigationBlockers() const
+	{
+		std::vector<PokemonNavigationBlocker> blockers;
+		blockers.reserve(ROCK_PLACEMENTS.size() + NUM_POKEMON);
+		for (std::size_t index = 0; index < ROCK_PLACEMENTS.size(); ++index)
+		{
+			const RockPlacement &rock = ROCK_PLACEMENTS[index];
+			PokemonNavigationBlocker blocker;
+			blocker.id = -1000 - static_cast<int>(index);
+			blocker.center = rock.center;
+			blocker.radius = std::max(rock.scale.x, rock.scale.z) * 1.18f;
+			blockers.push_back(blocker);
+		}
+		for (int index = 0; index < NUM_POKEMON; ++index)
+		{
+			const Pokemon &candidate = umbreons[index];
+			if (candidate.getCaught() != 0 || candidate.isFainted())
+			{
+				continue;
+			}
+			PokemonNavigationBlocker blocker;
+			blocker.id = index;
+			const glm::vec3 position = candidate.getPos();
+			blocker.center = glm::vec2(position.x, position.z);
+			blocker.radius = candidate.getSpecies() == PokemonSpecies::Umbreon
+			                     ? 0.60f
+			                     : 0.54f;
+			blockers.push_back(blocker);
+		}
+		return blockers;
 	}
 
 	void refreshPokemonCollisionObstacles()

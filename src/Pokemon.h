@@ -4,6 +4,7 @@
 
 #include <glm/glm.hpp>
 
+#include "PokemonNavigation.h"
 #include "PokemonSpecies.h"
 
 enum class PokemonBehaviorState
@@ -30,6 +31,9 @@ public:
 	PokemonBehaviorEvents update(double deltaSeconds);
 	PokemonBehaviorEvents update(double deltaSeconds,
 	                             const glm::vec3 &playerPosition);
+	PokemonBehaviorEvents update(
+		double deltaSeconds, const glm::vec3 &playerPosition,
+		const std::vector<PokemonNavigationBlocker> &navigationBlockers);
 	void setCaught(int flag);
 	void startle();
 	void coolDownAfterAttack();
@@ -63,8 +67,11 @@ private:
 	PokemonBehaviorEvents updateBehavior(float deltaSeconds,
 	                                     const glm::vec3 &playerPosition);
 	glm::vec3 desiredVelocity(const glm::vec3 &playerPosition) const;
-	void integrateMotion(float deltaSeconds, const glm::vec3 &desiredVelocity);
+	void integrateMotion(
+		float deltaSeconds, const glm::vec3 &desiredVelocity,
+		const std::vector<PokemonNavigationBlocker> &navigationBlockers);
 	bool isAtDestination() const;
+	float navigationRadius() const;
 
 	glm::vec3 position_ = glm::vec3(0.0f);
 	glm::vec3 destination_ = glm::vec3(0.0f);

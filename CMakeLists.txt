@@ -47,6 +47,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       tests/pokemon_behavior_test.cpp
 	  src/BattleMechanics.cpp
       src/Pokemon.cpp
+      src/PokemonNavigation.cpp
       src/PokemonAnimation.cpp
       src/PokemonSpecies.cpp)
   target_include_directories(pokemon_behavior_tests PRIVATE
@@ -126,6 +127,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       "${CMAKE_SOURCE_DIR}/src"
       "${CMAKE_SOURCE_DIR}/ext/glm/include")
   add_test(NAME world_lighting_cycle COMMAND world_lighting_tests)
+
+  add_executable(pokemon_navigation_tests
+      tests/pokemon_navigation_test.cpp
+      src/PokemonNavigation.cpp)
+  target_include_directories(pokemon_navigation_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME pokemon_overworld_navigation COMMAND pokemon_navigation_tests)
 endif()
 
 # We don't really need to include header and resource files to build, but it's

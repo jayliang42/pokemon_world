@@ -236,6 +236,19 @@ void testFleeStateReturnsToWanderAfterReachingSafety()
 	           "Pokemon leaves Flee state after the threat is gone");
 }
 
+void testGroundPokemonNavigationResolvesVisibleBlockers()
+{
+	Pokemon pokemon(0, 1, 123u);
+	pokemon.setPosition(glm::vec3(0.0f));
+	const std::vector<PokemonNavigationBlocker> blockers = {
+		{-100, glm::vec2(0.0f), 0.8f},
+	};
+	pokemon.update(0.05, glm::vec3(40.0f, 0.0f, 40.0f), blockers);
+	const glm::vec3 position = pokemon.getPos();
+	expectTrue(glm::length(glm::vec2(position.x, position.z)) >= 1.43f,
+	           "ground Pokemon are separated from a visible navigation blocker");
+}
+
 void testLargeFrameIsClampedAndCaughtPokemonStops()
 {
 	Pokemon regular(0, 5, 321u);
@@ -360,6 +373,7 @@ int main()
 	testStartleForcesAFieldPokemonToFlee();
 	testHealthDamageFaintingAndRestore();
 	testFleeStateReturnsToWanderAfterReachingSafety();
+	testGroundPokemonNavigationResolvesVisibleBlockers();
 	testLargeFrameIsClampedAndCaughtPokemonStops();
 	testFlyingPokemonStaysWithinFlightBand();
 	testAnimationPhaseFollowsLocomotion();
