@@ -45,10 +45,12 @@ void testSpeciesHaveDistinctCaptureDifficulty()
 		calculateCaptureProbability(standardAttempt(PokemonSpecies::Bulbasaur));
 	const float umbreon =
 		calculateCaptureProbability(standardAttempt(PokemonSpecies::Umbreon));
+	const float eevee =
+		calculateCaptureProbability(standardAttempt(PokemonSpecies::Eevee));
 	const float charizard =
 		calculateCaptureProbability(standardAttempt(PokemonSpecies::Charizard));
-	expectTrue(bulbasaur > umbreon && umbreon > charizard,
-	           "species difficulty orders Bulbasaur, Umbreon, then Charizard");
+	expectTrue(bulbasaur > eevee && eevee > umbreon && umbreon > charizard,
+	           "species difficulty orders Bulbasaur, Eevee, Umbreon, then Charizard");
 }
 
 void testDistanceAimAndActivityMatter()

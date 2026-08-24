@@ -120,15 +120,16 @@ night reduce visibility consistently instead of only recoloring the background.
 
 ## Visual assets
 
-The original Charizard and Umbreon models remain in the project. Bulbasaur is
-an original stylized low-poly mesh built from editable primitives for this
-repository; it does not contain geometry or textures extracted from a
-commercial Pokemon game. Its twelve named OBJ groups provide separate body,
-eye, bulb, and leg parts for coloring and animation. Regenerate the checked-in
-asset with:
+The original Charizard and Umbreon models remain in the project. Bulbasaur and
+Eevee are original stylized low-poly meshes built from editable primitives for
+this repository; they do not contain geometry or textures extracted from a
+commercial Pokemon game. Their named OBJ groups provide separate body, eye,
+tail, ear, and leg parts for coloring and animation. Regenerate the checked-in
+assets with:
 
 ```bash
 python3 tools/generate_bulbasaur.py
+python3 tools/generate_eevee.py
 ```
 
 The Charizard model uses the existing UV atlas at `resources/Texture/chariza.png`.

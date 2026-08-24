@@ -50,16 +50,22 @@ void testPokemonSpeciesAssignmentIsStable()
 {
 	Pokemon umbreonSpecies(0, 0, 12u);
 	Pokemon bulbasaurSpecies(0, 1, 12u);
+	Pokemon eeveeSpecies(0, 3, 12u);
 	Pokemon charizardSpecies(1, 0, 12u);
 	expectTrue(umbreonSpecies.getSpecies() == PokemonSpecies::Umbreon,
 	           "even ground slots are assigned to Umbreon");
 	expectTrue(bulbasaurSpecies.getSpecies() == PokemonSpecies::Bulbasaur,
 	           "odd ground slots are assigned to Bulbasaur");
+	expectTrue(eeveeSpecies.getSpecies() == PokemonSpecies::Eevee,
+	           "reserved field slots are assigned to Eevee");
 	expectTrue(charizardSpecies.getSpecies() == PokemonSpecies::Charizard,
 	           "flying slots are assigned to Charizard");
 	expectTrue(std::string(pokemonSpeciesName(bulbasaurSpecies.getSpecies())) ==
 	               "Bulbasaur",
 	           "species names are suitable for target feedback");
+	expectTrue(std::string(pokemonSpeciesName(eeveeSpecies.getSpecies())) ==
+	               "Eevee",
+	           "Eevee has a stable target-feedback name");
 }
 
 void testNearbyPlayerTriggersSmoothFleeMotion()

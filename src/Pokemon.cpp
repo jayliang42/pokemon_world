@@ -619,5 +619,9 @@ bool Pokemon::isAtDestination() const
 
 float Pokemon::navigationRadius() const
 {
-	return getSpecies() == PokemonSpecies::Umbreon ? 0.60f : 0.54f;
+	if (getSpecies() == PokemonSpecies::Umbreon)
+	{
+		return 0.60f;
+	}
+	return getSpecies() == PokemonSpecies::Eevee ? 0.56f : 0.54f;
 }

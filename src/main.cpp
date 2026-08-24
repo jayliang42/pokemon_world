@@ -50,6 +50,7 @@ using namespace glm;
 shared_ptr<Shape> shape;
 shared_ptr<Shape> umbreon;
 shared_ptr<Shape> bulbasaur;
+shared_ptr<Shape> eevee;
 shared_ptr<Shape> charizard;
 
 constexpr int NUM_POKEMON = 48;
@@ -164,6 +165,7 @@ float battleMoveVisualScale(BattleMoveId move)
 		return 1.38f;
 	case BattleMoveId::VineWhip:
 	case BattleMoveId::Bite:
+	case BattleMoveId::Tackle:
 	case BattleMoveId::WingAttack:
 		return 1.0f;
 	}
@@ -181,6 +183,7 @@ int battleMoveTrailCount(BattleMoveId move)
 	case BattleMoveId::Ember:
 	case BattleMoveId::VineWhip:
 	case BattleMoveId::Bite:
+	case BattleMoveId::Tackle:
 	case BattleMoveId::WingAttack:
 		return 1;
 	}
@@ -473,6 +476,12 @@ GLuint rockTex, umbreonTex;
 	GLuint bulbasaurEyeWhiteTex = 0;
 	GLuint bulbasaurEyeRedTex = 0;
 	GLuint bulbasaurEyeDarkTex = 0;
+	GLuint eeveeBodyTex = 0;
+	GLuint eeveeManeTex = 0;
+	GLuint eeveeInnerEarTex = 0;
+	GLuint eeveeEyeWhiteTex = 0;
+	GLuint eeveeEyeIrisTex = 0;
+	GLuint eeveeEyeDarkTex = 0;
 	TerrainHeightMap terrainHeightMap;
 	std::string resourceDirectory;
 	WorldLighting sceneLighting = sampleWorldLighting(0.25f);
@@ -1493,7 +1502,9 @@ GLuint rockTex, umbreonTex;
 			blocker.center = glm::vec2(position.x, position.z);
 			blocker.radius = candidate.getSpecies() == PokemonSpecies::Umbreon
 			                     ? 0.60f
-			                     : 0.54f;
+			                     : (candidate.getSpecies() == PokemonSpecies::Eevee
+			                            ? 0.56f
+			                            : 0.54f);
 			blockers.push_back(blocker);
 		}
 		return blockers;
@@ -1512,9 +1523,11 @@ GLuint rockTex, umbreonTex;
 			collider.baseY = terrainHeightMap.heightAt(position.x, position.z);
 			if (candidate.getCaught() == 0 && !candidate.isFainted())
 			{
-				const bool umbreon = candidate.getSpecies() == PokemonSpecies::Umbreon;
-				collider.radius = umbreon ? 0.78f : 0.64f;
-				collider.height = umbreon ? 1.22f : 0.96f;
+				const PokemonSpecies species = candidate.getSpecies();
+				const bool umbreon = species == PokemonSpecies::Umbreon;
+				const bool eevee = species == PokemonSpecies::Eevee;
+				collider.radius = umbreon ? 0.78f : (eevee ? 0.68f : 0.64f);
+				collider.height = umbreon ? 1.22f : (eevee ? 1.05f : 0.96f);
 			}
 			else
 			{
@@ -1964,6 +1977,63 @@ GLuint rockTex, umbreonTex;
 		}
 	}
 
+	GLuint eeveeTextureForPart(const std::string &partName) const
+	{
+		if (partName.find("mane") != std::string::npos ||
+		    partName.find("tail-tip") != std::string::npos)
+		{
+			return eeveeManeTex;
+		}
+		if (partName.find("ear-inner") != std::string::npos)
+		{
+			return eeveeInnerEarTex;
+		}
+		if (partName.find("eye-white") != std::string::npos ||
+		    partName.find("eye-highlight") != std::string::npos)
+		{
+			return eeveeEyeWhiteTex;
+		}
+		if (partName.find("eye-iris") != std::string::npos)
+		{
+			return eeveeEyeIrisTex;
+		}
+		if (partName.find("eye-dark") != std::string::npos)
+		{
+			return eeveeEyeDarkTex;
+		}
+		return eeveeBodyTex;
+	}
+
+	void drawEevee(const glm::mat4 &rootTransform,
+	               const PokemonAnimationPose &pose)
+	{
+		for (int partIndex = 0; partIndex < eevee->partCount(); ++partIndex)
+		{
+			const Shape::PartInfo &part = eevee->partInfo(partIndex);
+			PokemonPartAnimation animation =
+				samplePokemonPartAnimation(part.name, pose);
+			if (part.name.find("mane") != std::string::npos)
+			{
+				animation.roll += pose.strideAngle * 0.035f;
+			}
+			const glm::vec3 pivot = articulatedPartPivot(part);
+			glm::mat4 local = glm::translate(glm::mat4(1.0f), pivot);
+			local = local * glm::rotate(glm::mat4(1.0f), animation.pitch,
+			                           glm::vec3(1.0f, 0.0f, 0.0f));
+			local = local * glm::rotate(glm::mat4(1.0f), animation.yaw,
+			                           glm::vec3(0.0f, 1.0f, 0.0f));
+			local = local * glm::rotate(glm::mat4(1.0f), animation.roll,
+			                           glm::vec3(0.0f, 0.0f, 1.0f));
+			local = local * glm::translate(glm::mat4(1.0f), -pivot);
+			const glm::mat4 modelMatrix = rootTransform * local;
+			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE,
+			                   &modelMatrix[0][0]);
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, eeveeTextureForPart(part.name));
+			eevee->drawPart(pokemon2, partIndex, true);
+		}
+	}
+
 	void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
 	{
 		if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
@@ -2302,6 +2372,23 @@ GLuint rockTex, umbreonTex;
 		bulbasaurEyeWhiteTex = createSolidTexture(239, 244, 226);
 		bulbasaurEyeRedTex = createSolidTexture(186, 48, 58);
 		bulbasaurEyeDarkTex = createSolidTexture(42, 31, 43);
+
+		eevee = make_shared<Shape>();
+		eevee->loadMesh(resourceDirectory + "/pokemon/eevee.obj");
+		if (eevee->partCount() < 12)
+		{
+			std::cerr << "Unable to load the articulated Eevee model." << std::endl;
+			exit(1);
+		}
+		eevee->resize();
+		eevee->init();
+
+		eeveeBodyTex = createSolidTexture(150, 88, 48);
+		eeveeManeTex = createSolidTexture(239, 211, 160);
+		eeveeInnerEarTex = createSolidTexture(75, 42, 42);
+		eeveeEyeWhiteTex = createSolidTexture(248, 241, 221);
+		eeveeEyeIrisTex = createSolidTexture(102, 66, 40);
+		eeveeEyeDarkTex = createSolidTexture(31, 23, 27);
 
 		string str1 = resourceDirectory + "/pokemon";
 		charizard = make_shared<Shape>();
@@ -3212,10 +3299,13 @@ GLuint rockTex, umbreonTex;
 			{
 				applyWildBattlePose(pose, battleVisualSample, pendingWildMove);
 			}
-			const bool renderUmbreon =
-				umbreons[i].getSpecies() == PokemonSpecies::Umbreon;
-			const float creatureScale = renderUmbreon ? 0.55f : 0.65f;
-			const float groundOffset = renderUmbreon ? 0.34f : 0.47f;
+			const PokemonSpecies species = umbreons[i].getSpecies();
+			const bool renderUmbreon = species == PokemonSpecies::Umbreon;
+			const bool renderEevee = species == PokemonSpecies::Eevee;
+			const float creatureScale = renderUmbreon ? 0.55f :
+			                            (renderEevee ? 0.66f : 0.65f);
+			const float groundOffset = renderUmbreon ? 0.34f :
+			                           (renderEevee ? 0.38f : 0.47f);
 			vec3 wildPosition = umbreons[i].getPos();
 			if (isPendingBattleTarget(umbreons[i]))
 			{
@@ -3239,6 +3329,10 @@ GLuint rockTex, umbreonTex;
 				glActiveTexture(GL_TEXTURE0);
 				glBindTexture(GL_TEXTURE_2D, umbreonTex);
 				drawArticulatedShape(umbreon, creatureRoot, pose, true);
+			}
+			else if (renderEevee)
+			{
+				drawEevee(creatureRoot, pose);
 			}
 			else
 			{

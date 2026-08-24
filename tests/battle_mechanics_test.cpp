@@ -20,17 +20,23 @@ void testSpeciesStatsAndMovesAreDistinct()
 {
 	const BattleStats umbreon = battleStatsFor(PokemonSpecies::Umbreon);
 	const BattleStats bulbasaur = battleStatsFor(PokemonSpecies::Bulbasaur);
+	const BattleStats eevee = battleStatsFor(PokemonSpecies::Eevee);
 	const BattleStats charizard = battleStatsFor(PokemonSpecies::Charizard);
 	expectTrue(umbreon.defense > charizard.defense &&
 	               charizard.defense > bulbasaur.defense,
 	           "species preserve distinct defensive identities");
 	expectTrue(charizard.maximumHealth > bulbasaur.maximumHealth,
 	           "larger species receive a larger health pool");
+	expectTrue(eevee.maximumHealth == bulbasaur.maximumHealth &&
+	               eevee.attack > bulbasaur.attack,
+	           "Eevee preserves the ground save health limit with its own attack identity");
 	expectTrue(wildBattleMoveFor(PokemonSpecies::Umbreon).id == BattleMoveId::Bite,
 	           "Umbreon uses Bite as its counter move");
 	expectTrue(wildBattleMoveFor(PokemonSpecies::Bulbasaur).id ==
 	               BattleMoveId::VineWhip,
 	           "Bulbasaur uses Vine Whip as its counter move");
+	expectTrue(wildBattleMoveFor(PokemonSpecies::Eevee).id == BattleMoveId::Tackle,
+	           "Eevee uses Tackle as its counter move");
 	expectTrue(wildBattleMoveFor(PokemonSpecies::Charizard).id ==
 	               BattleMoveId::WingAttack,
 	           "Charizard uses Wing Attack as its counter move");
@@ -45,6 +51,8 @@ void testTypeMatchAndEffectiveness()
 	           "Charizard receives same-type bonus for Fire moves");
 	expectTrue(moveMatchesSpecies(PokemonType::Flying, PokemonSpecies::Charizard),
 	           "Charizard receives same-type bonus for Flying moves");
+	expectTrue(moveMatchesSpecies(PokemonType::Normal, PokemonSpecies::Eevee),
+	           "Eevee receives same-type bonus for Normal moves");
 	expectTrue(battleTypeEffectiveness(PokemonType::Fire,
 	                                  PokemonSpecies::Bulbasaur) == 2.0f,
 	           "Fire is super effective against Bulbasaur");

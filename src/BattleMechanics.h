@@ -20,6 +20,7 @@ enum class BattleMoveId
 	Flamethrower,
 	VineWhip,
 	Bite,
+	Tackle,
 	WingAttack,
 };
 

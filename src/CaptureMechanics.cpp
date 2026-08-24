@@ -15,6 +15,8 @@ float speciesBaseProbability(PokemonSpecies species)
 	{
 	case PokemonSpecies::Bulbasaur:
 		return 0.72f;
+	case PokemonSpecies::Eevee:
+		return 0.64f;
 	case PokemonSpecies::Umbreon:
 		return 0.56f;
 	case PokemonSpecies::Charizard:

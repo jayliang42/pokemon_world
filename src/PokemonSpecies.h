@@ -4,6 +4,7 @@ enum class PokemonSpecies
 {
 	Umbreon,
 	Bulbasaur,
+	Eevee,
 	Charizard,
 };
 

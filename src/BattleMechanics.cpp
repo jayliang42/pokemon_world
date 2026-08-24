@@ -11,6 +11,8 @@ BattleStats battleStatsFor(PokemonSpecies species)
 		return {96, 65, 110};
 	case PokemonSpecies::Bulbasaur:
 		return {82, 49, 49};
+	case PokemonSpecies::Eevee:
+		return {82, 55, 50};
 	case PokemonSpecies::Charizard:
 		return {118, 84, 78};
 	}
@@ -40,6 +42,8 @@ BattleMove wildBattleMoveFor(PokemonSpecies species)
 		return {BattleMoveId::Bite, "Bite", PokemonType::Dark, 24, 0.0f};
 	case PokemonSpecies::Bulbasaur:
 		return {BattleMoveId::VineWhip, "Vine Whip", PokemonType::Grass, 26, 0.0f};
+	case PokemonSpecies::Eevee:
+		return {BattleMoveId::Tackle, "Tackle", PokemonType::Normal, 23, 0.0f};
 	case PokemonSpecies::Charizard:
 		return {BattleMoveId::WingAttack, "Wing Attack", PokemonType::Flying, 30, 0.0f};
 	}
@@ -83,6 +87,8 @@ bool moveMatchesSpecies(PokemonType moveType, PokemonSpecies species)
 		return moveType == PokemonType::Dark;
 	case PokemonSpecies::Bulbasaur:
 		return moveType == PokemonType::Grass;
+	case PokemonSpecies::Eevee:
+		return moveType == PokemonType::Normal;
 	case PokemonSpecies::Charizard:
 		return moveType == PokemonType::Fire || moveType == PokemonType::Flying;
 	}
