@@ -33,6 +33,7 @@ Modified by: <Zhisong Liang>
 #include "PokemonTargeting.h"
 #include "PlayerController.h"
 #include "ResearchMission.h"
+#include "ResearchRunState.h"
 #include "TerrainHeightMap.h"
 #include "ThirdPersonCamera.h"
 #include "WorldLighting.h"
@@ -545,7 +546,7 @@ GLuint rockTex, umbreonTex;
 		}
 
 		std::ostringstream title;
-		title << "Pokemon World | W/S move  A/D turn  Q/E/Space fly  Shift dodge  Z gravity  1/2/3 moves  X attack  C catch  R reset"
+		title << "Pokemon World | W/S move  A/D turn  Q/E/Space fly  Shift dodge  Z gravity  1/2/3 moves  X attack  C catch  F camp  R reset"
 		      << " | Caught " << caughtCount << "/" << CAPTURE_GOAL
 		      << " | Defeated " << defeatedCount
 		      << " | Poke Balls " << pokeballs
@@ -573,6 +574,12 @@ GLuint rockTex, umbreonTex;
 			}
 		}, message.c_str());
 #endif
+	}
+
+	ResearchRunOutcome currentRunOutcome() const
+	{
+		return evaluateResearchRunOutcome(caughtCount, CAPTURE_GOAL, pokeballs,
+		                                 playerHealth);
 	}
 
 	void notifySaveState(const std::string &message, bool available)
@@ -714,19 +721,22 @@ GLuint rockTex, umbreonTex;
 		nextWildEncounterTime = glfwGetTime() + 1.0;
 		playerMoveLoadout.reset();
 		resetConfirmationExpires = -100.0;
-		gameFinished = caughtCount >= CAPTURE_GOAL || playerHealth <= 0 ||
-		               (pokeballs == 0 && caughtCount < CAPTURE_GOAL);
+		const ResearchRunOutcome outcome = currentRunOutcome();
+		gameFinished = outcome != ResearchRunOutcome::Active;
 
 		std::ostringstream message;
-		if (caughtCount >= CAPTURE_GOAL)
+		if (outcome == ResearchRunOutcome::ResearchComplete)
 		{
 			message << "Research complete! Autosave restored. Press R twice for a new run.";
 		}
-		else if (playerHealth <= 0)
+		else if (outcome == ResearchRunOutcome::PlayerFainted)
 		{
-			message << "Charizard needs recovery. Autosave restored; press R twice to retry.";
+			message << "Charizard needs recovery. Autosave restored; "
+			        << (canRecoverAtCamp(outcome, pokeballs)
+			                ? "press F to return to camp."
+			                : "no Poke Balls remain, so press R twice for a new run.");
 		}
-		else if (pokeballs == 0)
+		else if (outcome == ResearchRunOutcome::OutOfPokeBalls)
 		{
 			message << "Out of Poke Balls. Autosave restored; press R twice to retry.";
 		}
@@ -891,6 +901,60 @@ GLuint rockTex, umbreonTex;
 		playerAnimationPhase = 0.0f;
 		setStatus("New research run started. Explore the field and find a Pokemon.");
 		saveGameProgress("New game saved");
+	}
+
+	bool recoverAtCamp()
+	{
+		const ResearchRunOutcome outcome = currentRunOutcome();
+		if (!canRecoverAtCamp(outcome, pokeballs))
+		{
+			if (outcome == ResearchRunOutcome::Active)
+			{
+				setStatus("Camp recovery is only available after Charizard faints.");
+			}
+			else if (outcome == ResearchRunOutcome::ResearchComplete)
+			{
+				setStatus("Research is complete. Press R twice to start a new run.");
+			}
+			else
+			{
+				setStatus("No Poke Balls remain. Press R twice to start a new run.");
+			}
+			return false;
+		}
+
+		mycam.reset();
+		playerHealth = campRecoveryHealth(
+			battleStatsFor(PokemonSpecies::Charizard).maximumHealth);
+		captureRequested = false;
+		attackRequested = false;
+		currentTarget = PokemonTargetSelection();
+		captureEffectStarted = -100.0;
+		captureEffectSucceeded = true;
+		captureSequenceActive = false;
+		pendingCaptureTarget = nullptr;
+		captureSequenceStarted = -100.0;
+		lastCapturePhase = CapturePhase::Inactive;
+		lastCaptureShake = 0;
+		pendingCaptureSpecies.clear();
+		battleSequenceActive = false;
+		pendingBattleTarget = nullptr;
+		battleSequenceStarted = -100.0;
+		lastBattlePhase = BattlePhase::Inactive;
+		targetDamageApplied = false;
+		playerDamageApplied = false;
+		playerEvadedCurrentCounter = false;
+		battleInitiatedByWild = false;
+		pendingBattleSpecies.clear();
+		overworldThreat = nullptr;
+		overworldThreatDistance = 0.0f;
+		nextWildEncounterTime = glfwGetTime() + 2.0;
+		playerMoveLoadout.reset();
+		dodgeEffectStarted = -100.0;
+		resetConfirmationExpires = -100.0;
+		gameFinished = false;
+		setStatus("Charizard recovered at camp. Research progress was preserved.");
+		return saveGameProgress("Camp recovery saved");
 	}
 
 	glm::vec3 pokemonWorldPosition(const Pokemon &candidate) const
@@ -1134,7 +1198,9 @@ GLuint rockTex, umbreonTex;
 		if (playerHealth <= 0)
 		{
 			gameFinished = true;
-			setStatus("Charizard can no longer battle. Press R twice to recover and retry.");
+			setStatus(canRecoverAtCamp(currentRunOutcome(), pokeballs)
+			              ? "Charizard fainted. Press F to return to camp and keep your research."
+			              : "Charizard fainted with no Poke Balls left. Press R twice for a new run.");
 			return;
 		}
 		if (targetFainted)
@@ -2127,6 +2193,10 @@ GLuint rockTex, umbreonTex;
 		{
 			attackRequested = true;
 		}
+		if (key == GLFW_KEY_F && action == GLFW_PRESS)
+		{
+			recoverAtCamp();
+		}
 		if (key >= GLFW_KEY_1 && key <= GLFW_KEY_3 && action == GLFW_PRESS)
 		{
 			selectPlayerMove(key - GLFW_KEY_1);
@@ -2785,7 +2855,7 @@ GLuint rockTex, umbreonTex;
 		{
 			resetGame();
 		}
-		if (captureSequenceActive || battleSequenceActive)
+		if (captureSequenceActive || battleSequenceActive || gameFinished)
 		{
 			mycam.w = mycam.a = mycam.s = mycam.d = 0;
 			mycam.q = mycam.e = mycam.space = 0;

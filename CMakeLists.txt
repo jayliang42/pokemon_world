@@ -106,6 +106,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       "${CMAKE_SOURCE_DIR}/src")
   add_test(NAME pokemon_research_mission COMMAND research_mission_tests)
 
+  add_executable(research_run_state_tests
+      tests/research_run_state_test.cpp
+      src/ResearchRunState.cpp)
+  target_include_directories(research_run_state_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src")
+  add_test(NAME pokemon_research_run_state COMMAND research_run_state_tests)
+
   add_executable(game_save_tests
       tests/game_save_test.cpp
       src/GameSave.cpp)

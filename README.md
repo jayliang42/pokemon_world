@@ -147,6 +147,7 @@ with the asset.
 - `1` / `2` / `3`: select Ember, Air Slash, or Flamethrower
 - `X`: use the selected move on the locked Pokemon
 - `C`: catch the nearest Pokemon in range
+- `F`: after Charizard faints, return to camp at full health while preserving research progress (requires at least one Poke Ball)
 - `R`: press twice within three seconds to start a new research run
 - `Esc`: quit
 
