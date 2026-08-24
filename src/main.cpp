@@ -331,7 +331,7 @@ public:
 	{
 		PlayerInput input;
 		input.forward = static_cast<float>(w - s);
-		input.turn = static_cast<float>(d - a);
+		input.turn = playerTurnAxis(a != 0, d != 0);
 		input.vertical = static_cast<float>(((q == 1 || space == 1) ? 1 : 0) - e);
 		motionEvents_ = controller_.update(input, static_cast<float>(ftime));
 
@@ -421,7 +421,7 @@ public:
 
 	float turnRatio() const
 	{
-		return static_cast<float>(d - a);
+		return playerTurnAxis(a != 0, d != 0);
 	}
 
 	const PlayerMotionEvents &motionEvents() const

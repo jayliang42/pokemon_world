@@ -12,6 +12,8 @@ struct PlayerInput
 	float vertical = 0.0f;
 };
 
+float playerTurnAxis(bool turnLeft, bool turnRight);
+
 struct PlayerMotionEvents
 {
 	bool landed = false;

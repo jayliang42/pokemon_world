@@ -53,6 +53,11 @@ float wrapAngle(float angle)
 }
 }
 
+float playerTurnAxis(bool turnLeft, bool turnRight)
+{
+	return static_cast<float>(turnLeft) - static_cast<float>(turnRight);
+}
+
 PlayerController::PlayerController(const PlayerPhysicsConfig &config)
 	: config_(config)
 {
