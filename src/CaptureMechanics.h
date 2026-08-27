@@ -18,6 +18,10 @@ struct CaptureAttempt
 	float maximumDistance = 5.0f;
 	float alignment = 1.0f;
 	float healthRatio = 1.0f;
+	float alertness = 0.0f;
+	bool backHit = false;
+	bool lured = false;
+	float difficultyMultiplier = 1.0f;
 	CaptureActivity activity = CaptureActivity::Moving;
 };
 
@@ -29,6 +33,9 @@ struct CaptureResult
 };
 
 float calculateCaptureProbability(const CaptureAttempt &attempt);
+bool isCaptureBackHit(float targetHeading,
+	                  float targetToThrowerX,
+	                  float targetToThrowerZ);
 CaptureResult resolveCaptureAttempt(const CaptureAttempt &attempt,
 	                                float randomRoll);
 

@@ -12,6 +12,7 @@ Modified by: <Zhisong Liang>
 #include <ctime>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -19,25 +20,40 @@ Modified by: <Zhisong Liang>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "GLSL.h"
+#include "AlphaNest.h"
 #include "BattleMechanics.h"
 #include "BattleMoveLoadout.h"
+#include "BattleMoveVolume.h"
 #include "BattleSequence.h"
 #include "CaptureMechanics.h"
+#include "CaptureProjectile.h"
 #include "CaptureSequence.h"
 #include "FieldRadar.h"
+#include "FieldCamp.h"
+#include "FieldLure.h"
+#include "FrameCapture.h"
+#include "GameSession.h"
 #include "GameSave.h"
 #include "GameSaveStorage.h"
+#include "HudTelemetry.h"
 #include "Program.h"
 #include "MatrixStack.h"
 #include "Pokemon.h"
 #include "PokemonAnimation.h"
+#include "PokemonGroupAlert.h"
+#include "PokemonSightline.h"
 #include "PokemonTargeting.h"
 #include "PlayerController.h"
 #include "ResearchMission.h"
+#include "ResearchProgression.h"
 #include "ResearchRunState.h"
+#include "RegionalResearch.h"
+#include "ResourceLocator.h"
 #include "TerrainHeightMap.h"
 #include "ThirdPersonCamera.h"
 #include "WorldLighting.h"
+#include "WorldLayout.h"
+#include "WorldRegion.h"
 
 #include "WindowManager.h"
 #include "Shape.h"
@@ -54,19 +70,13 @@ shared_ptr<Shape> umbreon;
 shared_ptr<Shape> bulbasaur;
 shared_ptr<Shape> eevee;
 shared_ptr<Shape> charizard;
+shared_ptr<Shape> fieldCampMesh;
+shared_ptr<Shape> fieldLandmarkMesh;
 
 constexpr int NUM_POKEMON = 48;
 constexpr int FLYING_POKEMON = 8;
-constexpr int STARTING_POKEBALLS = 10;
-constexpr int CAPTURE_GOAL = 5;
-constexpr float BATTLE_DODGE_CLEARANCE = 1.35f;
-
-struct RockPlacement
-{
-	glm::vec2 center;
-	glm::vec3 scale;
-	float yaw;
-};
+constexpr int ALPHA_TARGET_INDEX = FLYING_POKEMON;
+constexpr int ALPHA_POKEMON_ID = 1000;
 
 struct CaptureBallVisualPose
 {
@@ -103,7 +113,8 @@ glm::vec3 wildBattleLungeOffset(const glm::vec3 &start,
 	                            const BattleSequenceSample &sample,
 	                            const BattleMove &move)
 {
-	if (move.id != BattleMoveId::Bite)
+	if (move.id != BattleMoveId::Bite &&
+	    move.id != BattleMoveId::Tackle)
 	{
 		return glm::vec3(0.0f);
 	}
@@ -115,7 +126,9 @@ glm::vec3 wildBattleLungeOffset(const glm::vec3 &start,
 		return glm::vec3(0.0f);
 	}
 	direction /= distance;
-	const float lungeDistance = std::min(1.55f, distance * 0.34f);
+	const float lungeDistance = move.id == BattleMoveId::Tackle
+	                                ? std::min(2.0f, distance * 0.45f)
+	                                : std::min(1.55f, distance * 0.34f);
 	const float eased = easedBattleProgress(sample.phaseProgress);
 	if (sample.phase == BattlePhase::WildWindup)
 	{
@@ -166,10 +179,13 @@ float battleMoveVisualScale(BattleMoveId move)
 	case BattleMoveId::Flamethrower:
 		return 1.38f;
 	case BattleMoveId::VineWhip:
+		return 0.90f;
 	case BattleMoveId::Bite:
-	case BattleMoveId::Tackle:
-	case BattleMoveId::WingAttack:
 		return 1.0f;
+	case BattleMoveId::Tackle:
+		return 1.12f;
+	case BattleMoveId::WingAttack:
+		return 1.35f;
 	}
 	return 1.0f;
 }
@@ -217,6 +233,11 @@ void applyPlayerBattlePose(PokemonAnimationPose &pose,
 		{
 			pose.bodyRoll += std::sin(sample.phaseProgress * 6.2831853f) * 0.10f;
 		}
+	}
+	else if (sample.phase == BattlePhase::PlayerRecovery)
+	{
+		pose.bodyPitch -= (1.0f - eased) * (flamethrower ? 0.14f : 0.08f);
+		pose.wingAngle *= 0.65f + eased * 0.35f;
 	}
 	else if (sample.phase == BattlePhase::PlayerImpact && !playerEvaded)
 	{
@@ -292,30 +313,18 @@ void applyWildBattlePose(PokemonAnimationPose &pose,
 	}
 }
 
-const std::array<RockPlacement, 10> ROCK_PLACEMENTS = {{
-	{glm::vec2(5.0f, -7.0f), glm::vec3(1.0f, 0.70f, 0.85f), 0.25f},
-	{glm::vec2(-7.0f, -10.0f), glm::vec3(0.8f, 0.90f, 0.75f), -0.4f},
-	{glm::vec2(12.0f, -4.0f), glm::vec3(1.25f, 0.75f, 0.95f), 0.75f},
-	{glm::vec2(-13.0f, 4.0f), glm::vec3(1.05f, 0.60f, 0.90f), 0.1f},
-	{glm::vec2(8.0f, 12.0f), glm::vec3(0.9f, 1.05f, 0.80f), -0.65f},
-	{glm::vec2(-5.0f, 15.0f), glm::vec3(1.15f, 0.70f, 1.0f), 0.45f},
-	{glm::vec2(18.0f, -16.0f), glm::vec3(1.4f, 0.85f, 1.05f), -0.2f},
-	{glm::vec2(-19.0f, -14.0f), glm::vec3(1.0f, 1.15f, 0.90f), 0.6f},
-	{glm::vec2(22.0f, 9.0f), glm::vec3(1.15f, 0.65f, 1.30f), -0.8f},
-	{glm::vec2(-23.0f, 18.0f), glm::vec3(1.3f, 0.75f, 1.0f), 0.3f},
-}};
+const std::array<WorldRockPlacement, 10> &ROCK_PLACEMENTS =
+	worldRockPlacements();
+const std::array<WorldLandmarkPlacement, 9> &LANDMARK_PLACEMENTS =
+	worldLandmarkPlacements();
+const std::array<WorldTrailSegment, 9> &TRAIL_SEGMENTS =
+	worldTrailSegments();
+const std::array<WorldInterestPointPlacement, 4> &INTEREST_POINT_PLACEMENTS =
+	worldInterestPointPlacements();
 vec3 mypos;
 Pokemon umbreons[NUM_POKEMON];
 Pokemon charizards[FLYING_POKEMON];
 
-double get_last_elapsed_time()
-{
-	static double lasttime = glfwGetTime();
-	double actualtime = glfwGetTime();
-	double difference = actualtime - lasttime;
-	lasttime = actualtime;
-	return difference;
-}
 class camera
 {
 public:
@@ -333,12 +342,15 @@ public:
 		reset();
 	}
 
-	glm::mat4 process(double ftime)
+	glm::mat4 process(double ftime, float movementScale = 1.0f)
 	{
+		movementScale = glm::clamp(movementScale, 0.0f, 1.0f);
 		PlayerInput input;
-		input.forward = static_cast<float>(w - s);
-		input.turn = playerTurnAxis(a != 0, d != 0);
-		input.vertical = static_cast<float>(((q == 1 || space == 1) ? 1 : 0) - e);
+		input.forward = static_cast<float>(w - s) * movementScale;
+		input.turn = playerTurnAxis(a != 0, d != 0) * movementScale;
+		input.vertical =
+			static_cast<float>(((q == 1 || space == 1) ? 1 : 0) - e) *
+			movementScale;
 		motionEvents_ = controller_.update(input, static_cast<float>(ftime));
 
 		mypos = controller_.position();
@@ -351,6 +363,17 @@ public:
 	{
 		w = a = s = d = q = e = space = 0;
 		controller_.reset();
+		cameraRig_.reset();
+		motionEvents_ = PlayerMotionEvents();
+		mypos = controller_.position();
+		pos = -mypos;
+		cameraPose_ = cameraRig_.update(mypos, controller_.yaw(), 0.0f);
+	}
+
+	void resetAt(const glm::vec3 &position, float yaw = 0.0f)
+	{
+		w = a = s = d = q = e = space = 0;
+		controller_.reset(position, yaw);
 		cameraRig_.reset();
 		motionEvents_ = PlayerMotionEvents();
 		mypos = controller_.position();
@@ -435,6 +458,12 @@ public:
 		return playerTurnAxis(a != 0, d != 0);
 	}
 
+	glm::mat4 viewMatrix() const
+	{
+		return glm::lookAt(cameraPose_.position, cameraPose_.target,
+		                   glm::vec3(0.0f, 1.0f, 0.0f));
+	}
+
 	const PlayerMotionEvents &motionEvents() const
 	{
 		return motionEvents_;
@@ -484,16 +513,27 @@ GLuint rockTex, umbreonTex;
 	GLuint eeveeEyeWhiteTex = 0;
 	GLuint eeveeEyeIrisTex = 0;
 	GLuint eeveeEyeDarkTex = 0;
+	GLuint campTentTex = 0;
+	GLuint campEntranceTex = 0;
+	GLuint campWorkbenchTex = 0;
+	GLuint campSupplyTex = 0;
+	GLuint campPoleTex = 0;
+	GLuint campFlagTex = 0;
+	GLuint moonTreeTrunkTex = 0;
+	GLuint moonTreeCanopyLowTex = 0;
+	GLuint moonTreeCanopyHighTex = 0;
+	GLuint redSpireRockTex = 0;
+	GLuint redSpireCrystalTex = 0;
 	TerrainHeightMap terrainHeightMap;
 	std::string resourceDirectory;
 	WorldLighting sceneLighting = sampleWorldLighting(0.25f);
 	int caughtCount = 0;
-	int pokeballs = STARTING_POKEBALLS;
-	bool captureRequested = false;
+	int pokeballs = RESEARCH_STARTING_POKEBALLS;
 	bool attackRequested = false;
 	bool resetRequested = false;
 	bool gameFinished = false;
-	std::string statusMessage = "Explore the field and find a Pokemon.";
+	std::string statusMessage =
+		"Field camp ready · Press F for the survey briefing, then explore the field.";
 	PokemonTargetSelection currentTarget;
 	double nextTelemetryUpdate = 0.0;
 	glm::vec3 captureEffectPosition = glm::vec3(0.0f);
@@ -502,6 +542,7 @@ GLuint rockTex, umbreonTex;
 	CaptureRandom captureRandom{static_cast<std::uint32_t>(std::time(nullptr))};
 	bool captureSequenceActive = false;
 	CaptureResult pendingCaptureResult;
+	bool pendingCaptureLureBonus = false;
 	Pokemon *pendingCaptureTarget = nullptr;
 	double captureSequenceStarted = -100.0;
 	CapturePhase lastCapturePhase = CapturePhase::Inactive;
@@ -510,20 +551,37 @@ GLuint rockTex, umbreonTex;
 	glm::vec3 captureThrowStart = glm::vec3(0.0f);
 	glm::vec3 captureHitPosition = glm::vec3(0.0f);
 	glm::vec3 captureBallRestPosition = glm::vec3(0.0f);
+	CaptureProjectileConfig captureProjectileConfig;
+	CaptureProjectileState captureProjectile;
+	bool captureAiming = false;
+	double captureAimStarted = -100.0;
+	glm::vec3 captureProjectileOrigin = glm::vec3(0.0f);
+	glm::vec3 captureMissBallPosition = glm::vec3(0.0f);
+	double captureMissBallVisibleUntil = -100.0;
 	int playerHealth = 118;
 	int defeatedCount = 0;
+	bool researchSubmitted = false;
+	int lastCampSettlementScore = 0;
+	int researchLevel = RESEARCH_LEVEL_TRAINEE;
+	int luresRemaining = 0;
+	FieldLureState fieldLure;
+	FieldCampLayout fieldCamp = defaultFieldCampLayout();
 	bool battleSequenceActive = false;
 	BattleSequencePlan pendingBattlePlan;
 	BattleDamageResult pendingPlayerDamage;
 	BattleDamageResult pendingWildDamage;
 	BattleMove pendingPlayerMove;
 	BattleMove pendingWildMove;
+	BattleMoveVolumeResult pendingPlayerMoveVolume;
+	BattleMoveVolumeResult pendingWildMoveVolume;
 	BattleMoveLoadout playerMoveLoadout;
 	Pokemon *pendingBattleTarget = nullptr;
 	double battleSequenceStarted = -100.0;
 	BattlePhase lastBattlePhase = BattlePhase::Inactive;
 	bool targetDamageApplied = false;
 	bool playerDamageApplied = false;
+	bool playerMoveReleased = false;
+	bool wildMoveReleased = false;
 	bool playerEvadedCurrentCounter = false;
 	bool battleInitiatedByWild = false;
 	std::string pendingBattleSpecies;
@@ -532,12 +590,272 @@ GLuint rockTex, umbreonTex;
 	glm::vec3 battlePlayerHitPosition = glm::vec3(0.0f);
 	glm::vec3 dodgeEffectOrigin = glm::vec3(0.0f);
 	double dodgeEffectStarted = -100.0;
+	bool perfectDodgePending = false;
+	Pokemon *perfectCounterTarget = nullptr;
+	double perfectCounterWindowExpires = -100.0;
 	Pokemon *overworldThreat = nullptr;
 	float overworldThreatDistance = 0.0f;
 	double nextWildEncounterTime = 1.25;
+	PokemonGroupAlertState groupAlertState;
 	ResearchMissionProgress researchProgress;
+	AlphaNestProgress alphaNestProgress;
+	Pokemon alphaCharizard = Pokemon(1, ALPHA_POKEMON_ID, 0xA17FA123u);
 	double resetConfirmationExpires = -100.0;
 	float playerAnimationPhase = 0.0f;
+	GameSession gameSession;
+	double lastFrameTime = -1.0;
+	double nextWindowTitleUpdate = 0.0;
+	float qaLightingCyclePhaseOverride = -1.0f;
+
+	double gameplayTime() const
+	{
+		return gameSession.simulationTimeSeconds();
+	}
+
+	WorldLighting worldLightingAt(double now) const
+	{
+		const float phase = qaLightingCyclePhaseOverride >= 0.0f
+		                        ? qaLightingCyclePhaseOverride
+		                        : worldLightingCyclePhase(now);
+		return sampleWorldLighting(phase);
+	}
+
+	bool perfectCounterWindowActive(double now) const
+	{
+		return perfectCounterTarget && now < perfectCounterWindowExpires &&
+		       perfectCounterTarget->getCaught() == 0 &&
+		       !perfectCounterTarget->isFainted() &&
+		       perfectCounterTarget->isEcologicallyPresent();
+	}
+
+	double perfectCounterWindowRemaining(double now) const
+	{
+		return perfectCounterWindowActive(now)
+		           ? std::max(0.0, perfectCounterWindowExpires - now)
+		           : 0.0;
+	}
+
+	void clearPerfectCounterWindow()
+	{
+		perfectDodgePending = false;
+		perfectCounterTarget = nullptr;
+		perfectCounterWindowExpires = -100.0;
+	}
+
+	bool captureInteractionActive() const
+	{
+		return captureAiming || captureProjectile.active || captureSequenceActive;
+	}
+
+	float currentCaptureCharge(double now) const
+	{
+		return captureAiming
+		           ? captureThrowChargeFraction(now - captureAimStarted,
+		                                        captureProjectileConfig)
+		           : 0.0f;
+	}
+
+	glm::vec3 captureAimDirection() const
+	{
+		return glm::vec3(-std::sin(mycam.yaw()), 0.0f,
+		                 -std::cos(mycam.yaw()));
+	}
+
+	glm::vec3 captureLaunchPosition() const
+	{
+		return mypos + glm::vec3(0.0f, 0.9f, 0.0f) +
+		       captureAimDirection() * 0.55f;
+	}
+
+	void resetCaptureInteraction()
+	{
+		captureAiming = false;
+		captureAimStarted = -100.0;
+		captureProjectile = CaptureProjectileState();
+		captureMissBallVisibleUntil = -100.0;
+		captureSequenceActive = false;
+		pendingCaptureLureBonus = false;
+		pendingCaptureTarget = nullptr;
+		captureSequenceStarted = -100.0;
+		lastCapturePhase = CapturePhase::Inactive;
+		lastCaptureShake = 0;
+		pendingCaptureSpecies.clear();
+	}
+
+	bool isAlphaPokemon(const Pokemon &candidate) const
+	{
+		return &candidate == &alphaCharizard;
+	}
+
+	std::string displayPokemonName(const Pokemon &candidate) const
+	{
+		return isAlphaPokemon(candidate)
+		           ? "Alpha Charizard"
+		           : pokemonSpeciesName(candidate.getSpecies());
+	}
+
+	const WorldInterestPointPlacement *alphaNestPoint() const
+	{
+		for (const WorldInterestPointPlacement &point : INTEREST_POINT_PLACEMENTS)
+		{
+			if (point.kind == WorldInterestPointKind::AlphaNest)
+			{
+				return &point;
+			}
+		}
+		return nullptr;
+	}
+
+	bool alphaNestPrerequisitesMet() const
+	{
+		return researchProgress.moonshadowTrackSurveys > 0 &&
+		       researchProgress.redrockLookoutSurveys > 0;
+	}
+
+	float distanceToAlphaNest() const
+	{
+		const WorldInterestPointPlacement *point = alphaNestPoint();
+		return point
+		           ? glm::distance(glm::vec2(mypos.x, mypos.z), point->center)
+		           : std::numeric_limits<float>::infinity();
+	}
+
+	AlphaNestInteractionInput alphaNestInteractionInput(float distance) const
+	{
+		AlphaNestInteractionInput input;
+		const WorldInterestPointPlacement *point = alphaNestPoint();
+		input.distance = distance;
+		input.interactionRadius = point ? point->interactionRadius : 0.0f;
+		input.prerequisitesMet = alphaNestPrerequisitesMet();
+		const ResearchRunOutcome outcome = currentRunOutcome();
+		input.surveyActive = outcome == ResearchRunOutcome::Active ||
+		                     outcome == ResearchRunOutcome::ResearchComplete;
+		input.interactionBusy = battleSequenceActive || captureInteractionActive();
+		input.grounded = mycam.grounded();
+		return input;
+	}
+
+	std::string alphaNestPrompt(AlphaNestInteractionStatus status) const
+	{
+		switch (status)
+		{
+		case AlphaNestInteractionStatus::Available: return "F · DISTURB ALPHA NEST";
+		case AlphaNestInteractionStatus::Locked: return "COMPLETE BOTH REGIONAL SURVEYS";
+		case AlphaNestInteractionStatus::SurveyUnavailable: return "SURVEY CLOSED";
+		case AlphaNestInteractionStatus::InteractionBusy: return "FINISH CURRENT ACTION";
+		case AlphaNestInteractionStatus::TooFar: return "MOVE INTO THE NEST";
+		case AlphaNestInteractionStatus::Airborne: return "LAND TO ENTER";
+		case AlphaNestInteractionStatus::AlreadyActive: return "ALPHA CHARIZARD ACTIVE";
+		case AlphaNestInteractionStatus::Resolved: return "ALPHA ENCOUNTER COMPLETE";
+		case AlphaNestInteractionStatus::InvalidInput: return std::string();
+		}
+		return std::string();
+	}
+
+	void hideAlphaPokemon()
+	{
+		alphaCharizard.setEcologicallyPresent(false);
+	}
+
+	bool spawnAlphaPokemon()
+	{
+		const WorldInterestPointPlacement *point = alphaNestPoint();
+		if (!point)
+		{
+			return false;
+		}
+		alphaCharizard = Pokemon(1, ALPHA_POKEMON_ID, 0xA17FA123u);
+		const float nestGround = terrainHeightMap.heightAt(
+			point->center.x, point->center.y);
+		alphaCharizard.setPosition(glm::vec3(
+			point->center.x, nestGround + 7.5f, point->center.y));
+		alphaCharizard.setEcologicallyPresent(true);
+		alphaCharizard.receiveCompanionAlert();
+		return true;
+	}
+
+	const char *regionalResearchSiteName(WorldInterestPointKind kind) const
+	{
+		return kind == WorldInterestPointKind::MoonshadowTracks
+		           ? "Moonshadow Tracks"
+		           : "Redrock Lookout";
+	}
+
+	bool regionalResearchRecorded(WorldInterestPointKind kind) const
+	{
+		if (kind == WorldInterestPointKind::MoonshadowTracks)
+		{
+			return researchProgress.moonshadowTrackSurveys > 0;
+		}
+		if (kind == WorldInterestPointKind::RedrockLookout)
+		{
+			return researchProgress.redrockLookoutSurveys > 0;
+		}
+		return false;
+	}
+
+	const WorldInterestPointPlacement *nearestRegionalResearchPoint(
+		float &distance) const
+	{
+		distance = std::numeric_limits<float>::infinity();
+		const WorldInterestPointPlacement *nearest = nullptr;
+		for (const WorldInterestPointPlacement &point : INTEREST_POINT_PLACEMENTS)
+		{
+			if (point.kind != WorldInterestPointKind::MoonshadowTracks &&
+			    point.kind != WorldInterestPointKind::RedrockLookout)
+			{
+				continue;
+			}
+			const float candidateDistance = glm::distance(
+				glm::vec2(mypos.x, mypos.z), point.center);
+			if (candidateDistance < distance)
+			{
+				distance = candidateDistance;
+				nearest = &point;
+			}
+		}
+		return nearest;
+	}
+
+	RegionalObservationInput regionalObservationInput(
+		const WorldInterestPointPlacement &point, float distance,
+		double now) const
+	{
+		const ResearchRunOutcome outcome = currentRunOutcome();
+		RegionalObservationInput input;
+		input.kind = point.kind;
+		input.distance = distance;
+		input.interactionRadius = point.interactionRadius;
+		input.daylight = worldLightingAt(now).daylight;
+		input.grounded = mycam.grounded();
+		input.surveyActive = outcome == ResearchRunOutcome::Active ||
+		                     outcome == ResearchRunOutcome::ResearchComplete;
+		input.interactionBusy = battleSequenceActive || captureInteractionActive();
+		input.alreadyRecorded = regionalResearchRecorded(point.kind);
+		return input;
+	}
+
+	std::string regionalObservationPrompt(
+		const WorldInterestPointPlacement &point,
+		RegionalObservationStatus status) const
+	{
+		switch (status)
+		{
+		case RegionalObservationStatus::Available:
+			return point.kind == WorldInterestPointKind::MoonshadowTracks
+			           ? "F · RECORD TRACKS"
+			           : "F · SURVEY LOOKOUT";
+		case RegionalObservationStatus::AlreadyRecorded: return "RESEARCH RECORDED";
+		case RegionalObservationStatus::InteractionBusy: return "FINISH CURRENT ACTION";
+		case RegionalObservationStatus::TooFar: return "MOVE INTO THE MARKER";
+		case RegionalObservationStatus::Airborne: return "LAND TO RECORD";
+		case RegionalObservationStatus::RequiresNight: return "RETURN AT TWILIGHT OR NIGHT";
+		case RegionalObservationStatus::SurveyUnavailable: return "SURVEY CLOSED";
+		case RegionalObservationStatus::InvalidInput:
+		case RegionalObservationStatus::NotResearchSite: return std::string();
+		}
+		return std::string();
+	}
 
 	void updateWindowTitle()
 	{
@@ -547,15 +865,19 @@ GLuint rockTex, umbreonTex;
 		}
 
 		std::ostringstream title;
-		title << "Pokemon World | W/S move  A/D turn  Q/E/Space fly  Shift dodge  Z gravity  1/2/3 moves  X attack  C catch  F camp  R reset"
-		      << " | Caught " << caughtCount << "/" << CAPTURE_GOAL
+		const float daylight = worldLightingAt(gameplayTime()).daylight;
+		title << "Pokemon World | W/S move  A/D turn  Q/E/Space fly  Shift dodge  Z gravity  1/2/3 moves  X attack  Hold/release C throw  L lure  F interact  R reset"
+		      << " | Caught " << caughtCount << "/" << RESEARCH_CAPTURE_GOAL
 		      << " | Defeated " << defeatedCount
 		      << " | Poke Balls " << pokeballs
+		      << " | " << researchLevelName(researchLevel)
+		      << " | Lures " << luresRemaining
 		      << " | HP " << playerHealth << "/"
 		      << battleStatsFor(PokemonSpecies::Charizard).maximumHealth
 		      << " | Move " << playerMoveLoadout.selectedMove().name
 		      << " | " << (mycam.gravityEnabled() ? "Gravity ON" : "Hover mode")
-		      << " | " << (mycam.grounded() ? "Grounded" : "Airborne");
+		      << " | " << (mycam.grounded() ? "Grounded" : "Airborne")
+		      << " | " << pokemonEcologyPhaseName(daylight);
 		if (!statusMessage.empty())
 		{
 			title << " | " << statusMessage;
@@ -579,8 +901,47 @@ GLuint rockTex, umbreonTex;
 
 	ResearchRunOutcome currentRunOutcome() const
 	{
-		return evaluateResearchRunOutcome(caughtCount, CAPTURE_GOAL, pokeballs,
-		                                 playerHealth);
+		return evaluateResearchRunOutcome(caughtCount, RESEARCH_CAPTURE_GOAL, pokeballs,
+		                                 playerHealth, researchSubmitted);
+	}
+
+	bool playerInsideCamp() const
+	{
+		return isInsideCampInteractionRange(mypos, fieldCamp);
+	}
+
+	void resetPlayerAtFieldCamp()
+	{
+		const float groundHeight = terrainHeightMap.heightAt(
+			fieldCamp.spawnPosition.x, fieldCamp.spawnPosition.y);
+		mycam.resetAt(
+			glm::vec3(fieldCamp.spawnPosition.x, groundHeight,
+			          fieldCamp.spawnPosition.y),
+			fieldCamp.spawnYaw);
+	}
+
+	bool playerReadyAtCamp() const
+	{
+		return playerInsideCamp() && mycam.grounded();
+	}
+
+	bool researchReadyToSubmit() const
+	{
+		return caughtCount >= RESEARCH_CAPTURE_GOAL && !researchSubmitted;
+	}
+
+	int currentResearchScore() const
+	{
+		const ResearchMissionSnapshot mission = makeResearchMissionSnapshot(
+			caughtCount, defeatedCount, researchProgress, RESEARCH_CAPTURE_GOAL);
+		CampSettlementInput input;
+		input.atCamp = true;
+		input.caughtCount = caughtCount;
+		input.captureGoal = RESEARCH_CAPTURE_GOAL;
+		input.defeatedCount = defeatedCount;
+		input.completedObjectives = mission.completedObjectives();
+		const CampSettlementSummary preview = makeCampSettlement(input);
+		return preview.eligible ? preview.researchScore : 0;
 	}
 
 	void notifySaveState(const std::string &message, bool available)
@@ -616,8 +977,8 @@ GLuint rockTex, umbreonTex;
 	GameSaveLimits gameSaveLimits() const
 	{
 		GameSaveLimits limits;
-		limits.captureGoal = CAPTURE_GOAL;
-		limits.startingPokeballs = STARTING_POKEBALLS;
+		limits.captureGoal = RESEARCH_CAPTURE_GOAL;
+		limits.startingPokeballs = RESEARCH_STARTING_POKEBALLS;
 		limits.playerMaximumHealth =
 			battleStatsFor(PokemonSpecies::Charizard).maximumHealth;
 		limits.groundMaximumHealth.reserve(NUM_POKEMON);
@@ -639,6 +1000,10 @@ GLuint rockTex, umbreonTex;
 		data.pokeballs = pokeballs;
 		data.defeatedCount = defeatedCount;
 		data.playerHealth = playerHealth;
+		data.researchSubmitted = researchSubmitted;
+		data.researchLevel = researchLevel;
+		data.luresRemaining = luresRemaining;
+		data.alphaNestResolved = alphaNestProgress.resolved;
 		data.missionProgress = researchProgress;
 		data.groundPokemon.reserve(NUM_POKEMON);
 		for (int index = 0; index < NUM_POKEMON; ++index)
@@ -675,7 +1040,7 @@ GLuint rockTex, umbreonTex;
 		return saved;
 	}
 
-	bool applySavedProgress(const GameSaveData &data)
+	bool applySavedProgress(const GameSaveData &data, int sourceVersion)
 	{
 		if (!validateGameSave(data, gameSaveLimits()))
 		{
@@ -697,38 +1062,63 @@ GLuint rockTex, umbreonTex;
 			}
 			charizards[index].setCaught(data.flyingPokemon[index].caught ? 1 : 0);
 		}
+		alphaNestProgress = AlphaNestProgress();
+		alphaNestProgress.resolved = data.alphaNestResolved;
+		hideAlphaPokemon();
 
-		mycam.reset();
+		resetPlayerAtFieldCamp();
 		refreshPokemonCollisionObstacles();
 		caughtCount = data.caughtCount;
 		pokeballs = data.pokeballs;
 		defeatedCount = data.defeatedCount;
 		playerHealth = data.playerHealth;
+		researchSubmitted = data.researchSubmitted;
+		researchLevel = data.researchLevel;
+		luresRemaining = data.luresRemaining;
 		researchProgress = data.missionProgress;
-		captureRequested = false;
+		lastCampSettlementScore =
+			researchSubmitted ? currentResearchScore() : 0;
+		if (sourceVersion < 4 && researchSubmitted)
+		{
+			const ResearchProgressionResult migrated =
+				evaluateResearchProgression(researchLevel,
+				                            lastCampSettlementScore);
+			researchLevel = migrated.level;
+			luresRemaining = migrated.lureCapacity;
+		}
+		fieldLure = FieldLureState();
+		groupAlertState = PokemonGroupAlertState();
+		resetCaptureInteraction();
 		attackRequested = false;
 		resetRequested = false;
 		currentTarget = PokemonTargetSelection();
 		nextTelemetryUpdate = 0.0;
+		nextWindowTitleUpdate = 0.0;
 		dodgeEffectStarted = -100.0;
-		captureSequenceActive = false;
-		pendingCaptureTarget = nullptr;
+		clearPerfectCounterWindow();
 		battleSequenceActive = false;
 		pendingBattleTarget = nullptr;
+		pendingPlayerMoveVolume = BattleMoveVolumeResult();
 		playerEvadedCurrentCounter = false;
 		battleInitiatedByWild = false;
 		overworldThreat = nullptr;
 		overworldThreatDistance = 0.0f;
-		nextWildEncounterTime = glfwGetTime() + 1.0;
+		nextWildEncounterTime = gameplayTime() + 1.0;
 		playerMoveLoadout.reset();
 		resetConfirmationExpires = -100.0;
 		const ResearchRunOutcome outcome = currentRunOutcome();
-		gameFinished = outcome != ResearchRunOutcome::Active;
+		gameFinished = outcome == ResearchRunOutcome::ResearchSubmitted ||
+		               outcome == ResearchRunOutcome::PlayerFainted ||
+		               outcome == ResearchRunOutcome::OutOfPokeBalls;
 
 		std::ostringstream message;
 		if (outcome == ResearchRunOutcome::ResearchComplete)
 		{
-			message << "Research complete! Autosave restored. Press R twice for a new run.";
+			message << "Research ready to submit. Autosave restored at camp; land and press F.";
+		}
+		else if (outcome == ResearchRunOutcome::ResearchSubmitted)
+		{
+			message << "Submitted research restored. Press R twice to begin a new survey.";
 		}
 		else if (outcome == ResearchRunOutcome::PlayerFainted)
 		{
@@ -743,7 +1133,7 @@ GLuint rockTex, umbreonTex;
 		}
 		else
 		{
-			message << "Autosave restored: " << caughtCount << "/" << CAPTURE_GOAL
+			message << "Autosave restored: " << caughtCount << "/" << RESEARCH_CAPTURE_GOAL
 			        << " research samples.";
 		}
 		setStatus(message.str());
@@ -756,7 +1146,7 @@ GLuint rockTex, umbreonTex;
 		const GameSaveStorageReadResult stored = readGameSaveStorage();
 		if (stored.status == GameSaveStorageStatus::NotFound)
 		{
-			setStatus("Explore the field and find a Pokemon.");
+			setStatus("Field camp ready · Press F for the survey briefing, then explore the field.");
 			notifySaveState("Autosave ready", true);
 			return;
 		}
@@ -768,7 +1158,8 @@ GLuint rockTex, umbreonTex;
 		}
 		const GameSaveParseResult parsed =
 			parseGameSave(stored.payload, gameSaveLimits());
-		if (!parsed.valid || !applySavedProgress(parsed.data))
+		if (!parsed.valid ||
+		    !applySavedProgress(parsed.data, parsed.sourceVersion))
 		{
 			setStatus("Autosave was invalid and was ignored. Press R twice to replace it.");
 			notifySaveState("Invalid save ignored", false);
@@ -854,6 +1245,7 @@ GLuint rockTex, umbreonTex;
 			notifySaveState("Save unavailable", false);
 			return;
 		}
+		gameSession.reset();
 
 		for (int i = 0; i < NUM_POKEMON; ++i)
 		{
@@ -863,29 +1255,34 @@ GLuint rockTex, umbreonTex;
 		{
 			charizards[i] = Pokemon(1, i);
 		}
+		alphaNestProgress = AlphaNestProgress();
+		alphaCharizard = Pokemon(1, ALPHA_POKEMON_ID, 0xA17FA123u);
+		hideAlphaPokemon();
 
-		mycam.reset();
+		resetPlayerAtFieldCamp();
 		refreshPokemonCollisionObstacles();
 		caughtCount = 0;
-		pokeballs = STARTING_POKEBALLS;
-		captureRequested = false;
+		pokeballs = RESEARCH_STARTING_POKEBALLS;
+		luresRemaining = lureCapacityForResearchLevel(researchLevel);
+		fieldLure = FieldLureState();
+		groupAlertState = PokemonGroupAlertState();
+		researchSubmitted = false;
+		lastCampSettlementScore = 0;
+		resetCaptureInteraction();
 		attackRequested = false;
 		gameFinished = false;
 		currentTarget = PokemonTargetSelection();
 		nextTelemetryUpdate = 0.0;
+		nextWindowTitleUpdate = 0.0;
 		captureEffectStarted = -100.0;
 		dodgeEffectStarted = -100.0;
+		clearPerfectCounterWindow();
 		captureEffectSucceeded = true;
-		captureSequenceActive = false;
-		pendingCaptureTarget = nullptr;
-		captureSequenceStarted = -100.0;
-		lastCapturePhase = CapturePhase::Inactive;
-		lastCaptureShake = 0;
-		pendingCaptureSpecies.clear();
 		playerHealth = battleStatsFor(PokemonSpecies::Charizard).maximumHealth;
 		defeatedCount = 0;
 		battleSequenceActive = false;
 		pendingBattleTarget = nullptr;
+		pendingPlayerMoveVolume = BattleMoveVolumeResult();
 		battleSequenceStarted = -100.0;
 		lastBattlePhase = BattlePhase::Inactive;
 		targetDamageApplied = false;
@@ -895,12 +1292,12 @@ GLuint rockTex, umbreonTex;
 		pendingBattleSpecies.clear();
 		overworldThreat = nullptr;
 		overworldThreatDistance = 0.0f;
-		nextWildEncounterTime = glfwGetTime() + 1.0;
+		nextWildEncounterTime = gameplayTime() + 1.0;
 		playerMoveLoadout.reset();
 		researchProgress = ResearchMissionProgress();
 		resetConfirmationExpires = -100.0;
 		playerAnimationPhase = 0.0f;
-		setStatus("New research run started. Explore the field and find a Pokemon.");
+		setStatus("Field camp ready. Review the mission, then launch into the meadow.");
 		saveGameProgress("New game saved");
 	}
 
@@ -924,22 +1321,18 @@ GLuint rockTex, umbreonTex;
 			return false;
 		}
 
-		mycam.reset();
+		resetPlayerAtFieldCamp();
 		playerHealth = campRecoveryHealth(
 			battleStatsFor(PokemonSpecies::Charizard).maximumHealth);
-		captureRequested = false;
+		resetCaptureInteraction();
 		attackRequested = false;
 		currentTarget = PokemonTargetSelection();
 		captureEffectStarted = -100.0;
 		captureEffectSucceeded = true;
-		captureSequenceActive = false;
-		pendingCaptureTarget = nullptr;
-		captureSequenceStarted = -100.0;
-		lastCapturePhase = CapturePhase::Inactive;
-		lastCaptureShake = 0;
-		pendingCaptureSpecies.clear();
+		clearPerfectCounterWindow();
 		battleSequenceActive = false;
 		pendingBattleTarget = nullptr;
+		pendingPlayerMoveVolume = BattleMoveVolumeResult();
 		battleSequenceStarted = -100.0;
 		lastBattlePhase = BattlePhase::Inactive;
 		targetDamageApplied = false;
@@ -949,13 +1342,294 @@ GLuint rockTex, umbreonTex;
 		pendingBattleSpecies.clear();
 		overworldThreat = nullptr;
 		overworldThreatDistance = 0.0f;
-		nextWildEncounterTime = glfwGetTime() + 2.0;
+		nextWildEncounterTime = gameplayTime() + 2.0;
 		playerMoveLoadout.reset();
 		dodgeEffectStarted = -100.0;
 		resetConfirmationExpires = -100.0;
 		gameFinished = false;
-		setStatus("Charizard recovered at camp. Research progress was preserved.");
+		setStatus("Charizard was retrieved to the field camp. Research progress was preserved.");
 		return saveGameProgress("Camp recovery saved");
+	}
+
+	bool settleResearchAtCamp()
+	{
+		const ResearchMissionSnapshot mission = makeResearchMissionSnapshot(
+			caughtCount, defeatedCount, researchProgress, RESEARCH_CAPTURE_GOAL);
+		CampSettlementInput input;
+		input.atCamp = playerReadyAtCamp();
+		input.alreadySubmitted = researchSubmitted;
+		input.caughtCount = caughtCount;
+		input.captureGoal = RESEARCH_CAPTURE_GOAL;
+		input.defeatedCount = defeatedCount;
+		input.completedObjectives = mission.completedObjectives();
+		input.playerMaximumHealth =
+			battleStatsFor(PokemonSpecies::Charizard).maximumHealth;
+		input.startingPokeballs = RESEARCH_STARTING_POKEBALLS;
+		const CampSettlementSummary settlement = makeCampSettlement(input);
+		if (!settlement.eligible)
+		{
+			return false;
+		}
+
+		researchSubmitted = true;
+		lastCampSettlementScore = settlement.researchScore;
+		const ResearchProgressionResult progression =
+			evaluateResearchProgression(researchLevel,
+			                            settlement.researchScore);
+		researchLevel = progression.level;
+		luresRemaining = progression.lureCapacity;
+		fieldLure = FieldLureState();
+		playerHealth = settlement.restoredHealth;
+		pokeballs = settlement.replenishedPokeballs;
+		resetCaptureInteraction();
+		attackRequested = false;
+		clearPerfectCounterWindow();
+		battleSequenceActive = false;
+		pendingBattleTarget = nullptr;
+		overworldThreat = nullptr;
+		overworldThreatDistance = 0.0f;
+		gameFinished = true;
+		emitGameCue("camp-settlement");
+		std::ostringstream message;
+		message << "Research submitted at camp · Score "
+		        << settlement.researchScore << " · Charizard restored · "
+		        << settlement.replenishedPokeballs
+		        << " Poke Balls prepared";
+		if (progression.observerUnlocked)
+		{
+			message << " · Observer rank unlocked · 2 lures prepared";
+		}
+		else if (researchLevelAllowsLures(researchLevel))
+		{
+			message << " · " << luresRemaining << " lures prepared";
+		}
+		message << ". Press R twice for a new survey.";
+		setStatus(message.str());
+		return saveGameProgress("Research submitted at camp");
+	}
+
+	bool interactWithCamp()
+	{
+		const ResearchRunOutcome outcome = currentRunOutcome();
+		if (outcome == ResearchRunOutcome::PlayerFainted)
+		{
+			return recoverAtCamp();
+		}
+		if (outcome == ResearchRunOutcome::ResearchSubmitted)
+		{
+			setStatus("This survey is already submitted. Press R twice to prepare a new one.");
+			return false;
+		}
+		if (!playerInsideCamp())
+		{
+			std::ostringstream message;
+			message << "Field camp is " << std::fixed << std::setprecision(1)
+			        << horizontalDistanceToCamp(mypos, fieldCamp)
+			        << "m away. Return to the marked landing circle.";
+			setStatus(message.str());
+			return false;
+		}
+		if (!mycam.grounded())
+		{
+			setStatus("Land inside the camp circle before using the field station.");
+			return false;
+		}
+		if (outcome == ResearchRunOutcome::ResearchComplete)
+		{
+			return settleResearchAtCamp();
+		}
+		if (outcome == ResearchRunOutcome::OutOfPokeBalls)
+		{
+			setStatus("The survey ended before submission. Press R twice to prepare a new run.");
+			return false;
+		}
+
+		setStatus("Field camp ready · Catch 5 research samples, then return here to submit them.");
+		return true;
+	}
+
+	bool interactWithRegionalResearch(
+		const WorldInterestPointPlacement &point, float distance,
+		bool persistProgress = true)
+	{
+		const RegionalObservationStatus status = evaluateRegionalObservation(
+			regionalObservationInput(point, distance, gameplayTime()));
+		switch (status)
+		{
+		case RegionalObservationStatus::Available:
+			if (point.kind == WorldInterestPointKind::MoonshadowTracks)
+			{
+				recordMoonshadowTrackSurvey(researchProgress);
+				setStatus(
+					"Moonshadow tracks recorded · Fresh Umbreon movement confirmed after dusk · Regional objective complete.");
+			}
+			else
+			{
+				recordRedrockLookoutSurvey(researchProgress);
+				setStatus(
+					"Redrock lookout surveyed · Highland flight route mapped · Regional objective complete.");
+			}
+			emitGameCue("regional-observation");
+			if (persistProgress)
+			{
+				saveGameProgress("Regional research saved");
+			}
+			return true;
+		case RegionalObservationStatus::AlreadyRecorded:
+			setStatus(std::string(regionalResearchSiteName(point.kind)) +
+			          " is already recorded in this survey.");
+			break;
+		case RegionalObservationStatus::InteractionBusy:
+			setStatus("Finish the current battle or capture before recording field notes.");
+			break;
+		case RegionalObservationStatus::TooFar:
+		{
+			std::ostringstream message;
+			message << regionalResearchSiteName(point.kind) << " is " << std::fixed
+			        << std::setprecision(1) << distance
+			        << "m away. Move into the glowing observation marker.";
+			setStatus(message.str());
+			break;
+		}
+		case RegionalObservationStatus::Airborne:
+			setStatus("Land inside the observation marker before recording field notes.");
+			break;
+		case RegionalObservationStatus::RequiresNight:
+			setStatus(
+				"The Moonshadow tracks are indistinct in daylight. Return at Twilight or Night when Umbreon is active.");
+			break;
+		case RegionalObservationStatus::SurveyUnavailable:
+			setStatus("Regional research is unavailable after this survey ends. Start a new survey at camp.");
+			break;
+		case RegionalObservationStatus::InvalidInput:
+			setStatus("This observation marker is unavailable because its field data is invalid.");
+			break;
+		case RegionalObservationStatus::NotResearchSite:
+			return false;
+		}
+		return false;
+	}
+
+	bool interactWithAlphaNest(float distance)
+	{
+		const AlphaNestInteractionInput input = alphaNestInteractionInput(distance);
+		const AlphaNestInteractionStatus status =
+			evaluateAlphaNestInteraction(alphaNestProgress, input);
+		switch (status)
+		{
+		case AlphaNestInteractionStatus::Available:
+			if (!activateAlphaNest(alphaNestProgress, input) ||
+			    !spawnAlphaPokemon())
+			{
+				alphaNestProgress.active = false;
+				setStatus("The Alpha nest could not start because its world anchor is unavailable.");
+				return false;
+			}
+			nextWildEncounterTime = gameplayTime() + 0.45;
+			setStatus(
+				"The nest erupts · Alpha Charizard has arrived! Risk a direct throw, or weaken it first for better odds.");
+			emitGameCue("alpha-awaken", PokemonType::Fire);
+			return true;
+		case AlphaNestInteractionStatus::Locked:
+			setStatus(
+				"The nest is dormant. Record both Moonshadow Tracks and Redrock Lookout to identify the Alpha route.");
+			break;
+		case AlphaNestInteractionStatus::SurveyUnavailable:
+			setStatus("The Alpha commission is unavailable after this survey closes.");
+			break;
+		case AlphaNestInteractionStatus::InteractionBusy:
+			setStatus("Finish the current battle or capture before entering the Alpha nest.");
+			break;
+		case AlphaNestInteractionStatus::TooFar:
+		{
+			std::ostringstream message;
+			message << "Alpha Charizard Nest is " << std::fixed
+			        << std::setprecision(1) << distance
+			        << "m away. Move inside the crimson ring.";
+			setStatus(message.str());
+			break;
+		}
+		case AlphaNestInteractionStatus::Airborne:
+			setStatus("Land inside the crimson nest ring before disturbing it.");
+			break;
+		case AlphaNestInteractionStatus::AlreadyActive:
+			setStatus("Alpha Charizard is already active. Track it with the field radar.");
+			break;
+		case AlphaNestInteractionStatus::Resolved:
+			setStatus("Alpha Charizard encounter complete · The empty nest remains as a field record.");
+			break;
+		case AlphaNestInteractionStatus::InvalidInput:
+			setStatus("The Alpha nest is unavailable because its field data is invalid.");
+			break;
+		}
+		return false;
+	}
+
+	bool interactWithWorld(bool persistProgress = true)
+	{
+		const ResearchRunOutcome outcome = currentRunOutcome();
+		if (playerInsideCamp() || outcome == ResearchRunOutcome::PlayerFainted ||
+		    outcome == ResearchRunOutcome::ResearchSubmitted ||
+		    outcome == ResearchRunOutcome::OutOfPokeBalls)
+		{
+			return interactWithCamp();
+		}
+		const float alphaDistance = distanceToAlphaNest();
+		const WorldInterestPointPlacement *alphaPoint = alphaNestPoint();
+		if (alphaPoint &&
+		    alphaDistance <= alphaPoint->interactionRadius + 4.0f)
+		{
+			return interactWithAlphaNest(alphaDistance);
+		}
+
+		float distance = 0.0f;
+		const WorldInterestPointPlacement *point =
+			nearestRegionalResearchPoint(distance);
+		if (point && distance <= point->interactionRadius + 4.0f)
+		{
+			return interactWithRegionalResearch(*point, distance, persistProgress);
+		}
+		return interactWithCamp();
+	}
+
+	bool deployLure()
+	{
+		glm::vec3 lurePosition = mypos + captureAimDirection() * 3.2f;
+		lurePosition.y = terrainHeightMap.heightAt(
+			lurePosition.x, lurePosition.z) + 0.06f;
+		const bool gameplayAvailable =
+			currentRunOutcome() == ResearchRunOutcome::Active &&
+			!playerInsideCamp() && !battleSequenceActive &&
+			!captureInteractionActive();
+		const FieldLureDeployResult deployment = deployFieldLure(
+			researchLevelAllowsLures(researchLevel), luresRemaining,
+			mycam.grounded(), gameplayAvailable, lurePosition, fieldLure.active);
+		switch (deployment.status)
+		{
+		case FieldLureDeployStatus::Deployed:
+			luresRemaining = deployment.remainingInventory;
+			fieldLure = deployment.lure;
+			emitGameCue("lure-deploy");
+			setStatus("Field lure deployed · Calm Eevee within 18m will investigate · " +
+			          std::to_string(luresRemaining) + " remaining.");
+			return saveGameProgress("Lure inventory saved");
+		case FieldLureDeployStatus::Locked:
+			setStatus("Lures unlock at Observer rank after a 700-point survey.");
+			break;
+		case FieldLureDeployStatus::Empty:
+			setStatus("No lures remain in this survey. Start a new survey to restock.");
+			break;
+		case FieldLureDeployStatus::Airborne:
+			setStatus("Land before placing a field lure.");
+			break;
+		case FieldLureDeployStatus::AlreadyActive:
+			setStatus("A field lure is already active. Wait for its scent to fade.");
+			break;
+		case FieldLureDeployStatus::Unavailable:
+			setStatus("Field lures can only be deployed during an active survey away from camp.");
+			break;
+		}
+		return false;
 	}
 
 	glm::vec3 pokemonWorldPosition(const Pokemon &candidate) const
@@ -982,6 +1656,14 @@ GLuint rockTex, umbreonTex;
 			return CaptureActivity::Moving;
 		}
 		return CaptureActivity::Moving;
+	}
+
+	bool hasBackHitOpportunity(const Pokemon &candidate,
+	                           const glm::vec3 &throwerPosition) const
+	{
+		const glm::vec3 targetToThrower = throwerPosition - candidate.getPos();
+		return isCaptureBackHit(candidate.getHeading(), targetToThrower.x,
+		                        targetToThrower.z);
 	}
 
 	CaptureSequenceSample currentCaptureSample(double now) const
@@ -1073,7 +1755,7 @@ GLuint rockTex, umbreonTex;
 		return std::string();
 	}
 
-	void finishCaptureSequence()
+	void finishCaptureSequence(bool persistProgress = true)
 	{
 		Pokemon *target = pendingCaptureTarget;
 		const bool captured = pendingCaptureResult.captured && target;
@@ -1083,24 +1765,62 @@ GLuint rockTex, umbreonTex;
 
 		if (captured)
 		{
-			target->setCaught(1);
-			++caughtCount;
-			if (caughtCount >= CAPTURE_GOAL)
+			const bool capturedAlpha = isAlphaPokemon(*target);
+			const bool completedEeveeTask =
+				!capturedAlpha && target->getSpecies() == PokemonSpecies::Eevee &&
+				target->getHealth() == target->getMaximumHealth() &&
+				researchProgress.healthyEeveeCaptures == 0;
+			if (completedEeveeTask)
 			{
-				gameFinished = true;
-				setStatus("Research complete! Press R twice to play again.");
+				recordHealthyEeveeCapture(researchProgress);
+			}
+			target->setCaught(1);
+			if (capturedAlpha)
+			{
+				if (resolveAlphaNest(alphaNestProgress))
+				{
+					hideAlphaPokemon();
+				}
+				if (pokeballs == 0 && !researchReadyToSubmit())
+				{
+					gameFinished = true;
+					setStatus(
+						"Captured Alpha Charizard! Alpha encounter complete, but supplies are empty. Press R twice to prepare a new survey.");
+				}
+				else
+				{
+					setStatus(
+						"Captured Alpha Charizard! Alpha encounter complete. Return to camp when ready.");
+				}
+			}
+			else if (++caughtCount >= RESEARCH_CAPTURE_GOAL)
+			{
+				gameFinished = false;
+				setStatus(
+					"Research quota complete! Return to the field camp, land, and press F to submit." +
+					(completedEeveeTask
+					     ? std::string(" Eevee research task complete.")
+					     : std::string()));
 			}
 			else if (pokeballs == 0)
 			{
 				gameFinished = true;
-				setStatus("Out of Poke Balls before the goal. Press R twice to retry.");
+				setStatus(
+					"Out of Poke Balls before the goal. Press R twice to retry." +
+					(completedEeveeTask
+					     ? std::string(" Eevee research task complete.")
+					     : std::string()));
 			}
 			else
 			{
 				std::ostringstream message;
 				message << "Captured " << pendingCaptureSpecies << "! "
-				        << caughtCount << "/" << CAPTURE_GOAL
+				        << caughtCount << "/" << RESEARCH_CAPTURE_GOAL
 				        << " research samples complete.";
+				if (completedEeveeTask)
+				{
+					message << " Eevee research task complete.";
+				}
 				setStatus(message.str());
 			}
 		}
@@ -1129,7 +1849,10 @@ GLuint rockTex, umbreonTex;
 			}
 			setStatus(message.str());
 		}
-		saveGameProgress();
+		if (persistProgress)
+		{
+			saveGameProgress();
+		}
 	}
 
 	void updateCaptureSequence(double now)
@@ -1145,7 +1868,18 @@ GLuint rockTex, umbreonTex;
 			if (sample.phase == CapturePhase::Absorbing)
 			{
 				emitGameCue("capture-hit");
-				setStatus("Hit! " + pendingCaptureSpecies + " was pulled into the Poke Ball.");
+				std::ostringstream message;
+					message << "Hit! " << pendingCaptureSpecies
+					        << " was pulled into the Poke Ball · "
+					        << static_cast<int>(std::round(
+					               pendingCaptureResult.probability * 100.0f))
+					        << "% capture chance";
+					if (pendingCaptureLureBonus)
+					{
+						message << " · Lure bonus";
+					}
+					message << ".";
+				setStatus(message.str());
 			}
 			else if (sample.phase == CapturePhase::Succeeded)
 			{
@@ -1181,16 +1915,19 @@ GLuint rockTex, umbreonTex;
 		}
 	}
 
-	void finishBattleSequence()
+	void finishBattleSequence(double now)
 	{
 		Pokemon *target = pendingBattleTarget;
 		const bool targetFainted = target && target->isFainted();
 		const bool wildInitiated = battleInitiatedByWild;
+		const bool openPerfectCounter =
+			perfectDodgePending && target && !targetFainted;
+		perfectDodgePending = false;
 		battleSequenceActive = false;
 		pendingBattleTarget = nullptr;
 		lastBattlePhase = BattlePhase::Finished;
 		battleInitiatedByWild = false;
-		nextWildEncounterTime = glfwGetTime() + 0.9;
+		nextWildEncounterTime = now + 0.9;
 		if (wildInitiated && target)
 		{
 			target->coolDownAfterAttack();
@@ -1198,6 +1935,7 @@ GLuint rockTex, umbreonTex;
 
 		if (playerHealth <= 0)
 		{
+			clearPerfectCounterWindow();
 			gameFinished = true;
 			setStatus(canRecoverAtCamp(currentRunOutcome(), pokeballs)
 			              ? "Charizard fainted. Press F to return to camp and keep your research."
@@ -1206,17 +1944,57 @@ GLuint rockTex, umbreonTex;
 		}
 		if (targetFainted)
 		{
+			clearPerfectCounterWindow();
+			if (target && isAlphaPokemon(*target))
+			{
+				hideAlphaPokemon();
+				setStatus(
+					"Alpha Charizard defeated. Alpha encounter complete; return to camp when ready.");
+				return;
+			}
 			std::ostringstream message;
 			message << pendingBattleSpecies << " fainted. " << defeatedCount
 			        << " wild Pokemon defeated.";
 			setStatus(message.str());
 			return;
 		}
+		if (openPerfectCounter)
+		{
+			perfectCounterTarget = target;
+			perfectCounterWindowExpires =
+				now + static_cast<double>(PERFECT_COUNTER_WINDOW_SECONDS);
+			target->startle();
+			std::ostringstream message;
+			message << "Perfect dodge! Counter " << pendingBattleSpecies
+			        << " within " << std::fixed << std::setprecision(1)
+			        << PERFECT_COUNTER_WINDOW_SECONDS
+			        << "s for +35% damage and faster startup.";
+			setStatus(message.str());
+			return;
+		}
+		if (pendingBattlePlan.counterEnabled && wildMoveReleased &&
+		    !pendingWildMoveVolume.hitTarget)
+		{
+			std::ostringstream message;
+			message << pendingBattleSpecies << "'s " << pendingWildMove.name
+			        << " hit the world before reaching Charizard. Reposition around cover.";
+			setStatus(message.str());
+			return;
+		}
 		if (wildInitiated)
 		{
-			setStatus(playerEvadedCurrentCounter
-			              ? "Clean dodge! Umbreon pauses; counterattack or create distance."
-			              : "Umbreon is guarding its territory. Create distance or counterattack.");
+			if (pendingBattleTarget && pendingBattleTarget->isFlying())
+			{
+				setStatus(playerEvadedCurrentCounter
+				              ? "Clean dodge! Wild Charizard widens its turn; counterattack or change altitude."
+				              : "Wild Charizard is circling for another pass. Change altitude or counterattack.");
+			}
+			else
+			{
+				setStatus(playerEvadedCurrentCounter
+				              ? "Clean dodge! Umbreon pauses; counterattack or create distance."
+				              : "Umbreon is guarding its territory. Create distance or counterattack.");
+			}
 			return;
 		}
 		if (target)
@@ -1225,7 +2003,7 @@ GLuint rockTex, umbreonTex;
 			std::ostringstream message;
 			message << pendingBattleSpecies << " has " << target->getHealth()
 			        << "/" << target->getMaximumHealth()
-			        << " HP. Weaken it further or press C to throw.";
+			        << " HP. Weaken it further or hold C to aim a throw.";
 			setStatus(message.str());
 		}
 	}
@@ -1236,19 +2014,53 @@ GLuint rockTex, umbreonTex;
 		{
 			return;
 		}
-		const BattleSequenceSample sample = currentBattleSample(now);
-		if (pendingBattlePlan.counterEnabled &&
-		    sample.lockPlayerImpactPosition &&
-		    !battlePhaseAtLeast(lastBattlePhase, BattlePhase::WildProjectile) &&
+		BattleSequenceSample sample = currentBattleSample(now);
+		if (pendingBattlePlan.playerAttackEnabled && !playerMoveReleased &&
+		    battlePhaseAtLeast(sample.phase, BattlePhase::PlayerProjectile))
+		{
+			playerMoveReleased = true;
+			const glm::vec3 forward(-std::sin(mycam.yaw()), 0.0f,
+			                        -std::cos(mycam.yaw()));
+			battlePlayerOrigin = mypos +
+			                     glm::vec3(
+				                     0.0f,
+				                     playerBattleMoveReleaseHeight(pendingPlayerMove.id),
+				                     0.0f) +
+			                     forward * 0.75f;
+			if (pendingBattleTarget)
+			{
+				battleTargetPosition = pokemonWorldPosition(*pendingBattleTarget);
+				battleTargetPosition.y +=
+					pendingBattleTarget->isFlying() ? 0.0f : 0.52f;
+				pendingPlayerMoveVolume = resolveSelectedBattleMove(
+					pendingPlayerMove, *pendingBattleTarget,
+					battlePlayerOrigin, forward);
+			}
+			pendingBattlePlan.playerAttackHit =
+				pendingPlayerMoveVolume.hitTarget;
+			pendingBattlePlan.counterEnabled =
+				!pendingPlayerMoveVolume.hitTarget || !pendingBattleTarget ||
+				pendingBattleTarget->getHealth() > pendingPlayerDamage.amount;
+			sample = currentBattleSample(now);
+		}
+		if (pendingBattlePlan.counterEnabled && !wildMoveReleased &&
 		    battlePhaseAtLeast(sample.phase, BattlePhase::WildProjectile))
 		{
+			wildMoveReleased = true;
 			battlePlayerHitPosition = mypos + glm::vec3(0.0f, 0.82f, 0.0f);
+			if (pendingBattleTarget)
+			{
+				battleTargetPosition = captureCollisionCenter(*pendingBattleTarget);
+				pendingWildMoveVolume = resolveWildBattleMove(
+					pendingWildMove, *pendingBattleTarget,
+					battlePlayerHitPosition);
+			}
 		}
 		if (pendingBattlePlan.playerAttackEnabled && !targetDamageApplied &&
 		    battlePhaseAtLeast(sample.phase, BattlePhase::TargetImpact))
 		{
 			targetDamageApplied = true;
-			if (pendingBattleTarget)
+			if (pendingBattleTarget && pendingPlayerMoveVolume.hitTarget)
 			{
 				const int appliedDamage =
 					pendingBattleTarget->applyDamage(pendingPlayerDamage.amount);
@@ -1259,7 +2071,17 @@ GLuint rockTex, umbreonTex;
 				}
 				if (pendingBattleTarget->isFainted())
 				{
-					++defeatedCount;
+					if (isAlphaPokemon(*pendingBattleTarget))
+					{
+						if (resolveAlphaNest(alphaNestProgress))
+						{
+							hideAlphaPokemon();
+						}
+					}
+					else
+					{
+						++defeatedCount;
+					}
 					setStatus(pendingBattleSpecies + " fainted from " +
 					          pendingPlayerMove.name + "!");
 				}
@@ -1274,38 +2096,95 @@ GLuint rockTex, umbreonTex;
 				}
 				saveGameProgress();
 			}
+			else if (pendingBattleTarget)
+			{
+				std::ostringstream message;
+				message << pendingPlayerMove.name;
+				switch (pendingPlayerMoveVolume.impact)
+				{
+				case BattleMoveImpactKind::Terrain:
+					message << " struck the terrain before reaching ";
+					emitGameCue("move-blocked", pendingPlayerMove.type);
+					break;
+				case BattleMoveImpactKind::Obstacle:
+					message << " was blocked by cover before reaching ";
+					emitGameCue("move-blocked", pendingPlayerMove.type);
+					break;
+				case BattleMoveImpactKind::Miss:
+				case BattleMoveImpactKind::Target:
+					message << " missed ";
+					emitGameCue("move-miss", pendingPlayerMove.type);
+					break;
+				}
+				message << pendingBattleSpecies << ". It can counterattack.";
+				setStatus(message.str());
+			}
 		}
 		if (pendingBattlePlan.counterEnabled && !playerDamageApplied &&
 		    battlePhaseAtLeast(sample.phase, BattlePhase::PlayerImpact))
 		{
 			playerDamageApplied = true;
-			const glm::vec2 impactOffset(
-				mypos.x - battlePlayerHitPosition.x,
-				mypos.z - battlePlayerHitPosition.z);
-			const bool clearedImpactZone =
-				glm::length(impactOffset) >= BATTLE_DODGE_CLEARANCE;
-			const PlayerHitResult hit = resolvePlayerHit(
-				playerHealth, pendingWildDamage.amount,
-				mycam.isInvulnerable() || clearedImpactZone);
-			playerHealth = hit.remainingHealth;
-			playerEvadedCurrentCounter = hit.evaded;
-			if (hit.evaded)
+			if (!pendingWildMoveVolume.hitTarget)
 			{
-				emitGameCue("dodge-success", pendingWildMove.type);
-				setStatus("Charizard evaded " + pendingBattleSpecies + "'s " +
-				          pendingWildMove.name + "!");
+				playerEvadedCurrentCounter = false;
+				perfectDodgePending = false;
+				emitGameCue("wild-blocked", pendingWildMove.type);
+				std::ostringstream message;
+				message << pendingBattleSpecies << "'s " << pendingWildMove.name;
+				if (pendingWildMoveVolume.impact == BattleMoveImpactKind::Terrain)
+				{
+					message << " struck the terrain.";
+				}
+				else if (pendingWildMoveVolume.impact ==
+				         BattleMoveImpactKind::Obstacle)
+				{
+					message << " was stopped by cover.";
+				}
+				else
+				{
+					message << " fell short.";
+				}
+				setStatus(message.str());
 			}
 			else
 			{
-				emitGameCue("player-impact", pendingWildMove.type);
-				std::ostringstream message;
-				message << pendingBattleSpecies << " dealt " << hit.appliedDamage
-				        << " damage with " << pendingWildMove.name << " (Charizard "
-				        << playerHealth << "/"
-				        << battleStatsFor(PokemonSpecies::Charizard).maximumHealth
-				        << " HP)." << effectivenessMessage(pendingWildDamage);
-				setStatus(message.str());
-				saveGameProgress();
+				const BattleMoveGeometry geometry =
+					battleMoveGeometryFor(pendingWildMove.id);
+				const glm::vec2 impactOffset(
+					mypos.x - battlePlayerHitPosition.x,
+					mypos.z - battlePlayerHitPosition.z);
+				const bool clearedImpactZone =
+					glm::length(impactOffset) >= geometry.dangerRadius;
+				const PlayerHitResult hit = resolvePlayerHit(
+					playerHealth, pendingWildDamage.amount,
+					mycam.isInvulnerable() || clearedImpactZone);
+				playerHealth = hit.remainingHealth;
+				playerEvadedCurrentCounter = hit.evaded;
+				perfectDodgePending = isPerfectDodge(
+					hit.evaded, static_cast<float>(now - dodgeEffectStarted));
+				if (hit.evaded)
+				{
+					emitGameCue(
+						perfectDodgePending ? "perfect-dodge" : "dodge-success",
+						pendingWildMove.type);
+					setStatus(perfectDodgePending
+					              ? "Perfect dodge! Counter window opening against " +
+					                    pendingBattleSpecies + "."
+					              : "Charizard evaded " + pendingBattleSpecies + "'s " +
+					                    pendingWildMove.name + "!");
+				}
+				else
+				{
+					emitGameCue("player-impact", pendingWildMove.type);
+					std::ostringstream message;
+					message << pendingBattleSpecies << " dealt " << hit.appliedDamage
+					        << " damage with " << pendingWildMove.name << " (Charizard "
+					        << playerHealth << "/"
+					        << battleStatsFor(PokemonSpecies::Charizard).maximumHealth
+					        << " HP)." << effectivenessMessage(pendingWildDamage);
+					setStatus(message.str());
+					saveGameProgress();
+				}
 			}
 		}
 
@@ -1332,7 +2211,7 @@ GLuint rockTex, umbreonTex;
 		}
 		if (sample.finished)
 		{
-			finishBattleSequence();
+			finishBattleSequence(now);
 		}
 	}
 
@@ -1343,26 +2222,43 @@ GLuint rockTex, umbreonTex;
 			return;
 		}
 		const BattleMove &move = playerMoveLoadout.selectedMove();
+		const BattleMoveGeometry geometry = battleMoveGeometryFor(move.id);
 		const double remaining = playerMoveLoadout.cooldownRemaining(
-			slot, glfwGetTime());
+			slot, gameplayTime());
 		std::ostringstream message;
-		message << "Selected " << move.name << ". ";
+		message << "Selected " << move.name << " · "
+		        << battleMoveShapeName(geometry.shape) << " · " << std::fixed
+		        << std::setprecision(1) << geometry.range << "m. ";
 		if (remaining > 0.0)
 		{
-			message << std::fixed << std::setprecision(1) << remaining
-			        << "s until ready.";
+			message << remaining << "s until ready.";
 		}
 		else
 		{
 			message << "Ready to use.";
 		}
+		message << " Startup " << std::fixed << std::setprecision(2)
+		        << move.timing.startupSeconds << "s · mobility "
+		        << static_cast<int>(std::round(
+		               (1.0f - move.timing.movementLock) * 100.0f))
+		        << "%.";
 		setStatus(message.str());
 		emitGameCue("move-select", move.type);
 	}
 
 	void attackTargetedPokemon()
 	{
-		if (captureSequenceActive || battleSequenceActive)
+		if (playerInsideCamp())
+		{
+			setStatus("The field camp is a safe zone. Leave camp before using battle moves.");
+			return;
+		}
+		if (researchReadyToSubmit() && !alphaNestProgress.active)
+		{
+			setStatus("Research quota complete. Return to camp and press F to submit.");
+			return;
+		}
+		if (captureInteractionActive() || battleSequenceActive)
 		{
 			setStatus("Finish the current action before attacking again.");
 			return;
@@ -1371,19 +2267,25 @@ GLuint rockTex, umbreonTex;
 		{
 			return;
 		}
-		const double now = glfwGetTime();
+		const double now = gameplayTime();
 		const BattleMove &selectedMove = playerMoveLoadout.selectedMove();
+		const bool perfectCounterReady = perfectCounterWindowActive(now);
+		Pokemon *target = perfectCounterReady
+		                      ? perfectCounterTarget
+		                      : targetedPokemon();
 		const double cooldownRemaining = playerMoveLoadout.cooldownRemaining(
 			playerMoveLoadout.selectedSlot(), now);
 		if (cooldownRemaining > 0.0)
 		{
 			std::ostringstream message;
 			message << selectedMove.name << " is recharging for " << std::fixed
-			        << std::setprecision(1) << cooldownRemaining << "s.";
+			        << std::setprecision(1) << cooldownRemaining << "s."
+			        << (perfectCounterReady
+			                ? " Select another ready move before the counter window closes."
+			                : "");
 			setStatus(message.str());
 			return;
 		}
-		Pokemon *target = targetedPokemon();
 		if (!target)
 		{
 			setStatus("No battle target. Face a Pokemon inside the lock-on range.");
@@ -1394,72 +2296,118 @@ GLuint rockTex, umbreonTex;
 			setStatus("The selected move is not ready yet.");
 			return;
 		}
+		const bool perfectCounter =
+			perfectCounterReady && target == perfectCounterTarget;
+		clearPerfectCounterWindow();
 
 		pendingBattleTarget = target;
-		pendingBattleSpecies = pokemonSpeciesName(target->getSpecies());
+		pendingBattleSpecies = displayPokemonName(*target);
 		pendingPlayerMove = selectedMove;
 		pendingWildMove = wildBattleMoveFor(target->getSpecies());
 		pendingPlayerDamage = resolveBattleDamage(
 			PokemonSpecies::Charizard, target->getSpecies(), pendingPlayerMove);
+		BattleMoveTiming playerTiming = pendingPlayerMove.timing;
+		if (perfectCounter)
+		{
+			pendingPlayerDamage.amount = perfectCounterDamage(
+				pendingPlayerDamage.amount);
+			playerTiming.startupSeconds *=
+				PERFECT_COUNTER_STARTUP_MULTIPLIER;
+		}
 		pendingWildDamage = resolveBattleDamage(
 			target->getSpecies(), PokemonSpecies::Charizard, pendingWildMove);
+		const glm::vec3 forward(-std::sin(mycam.yaw()), 0.0f,
+		                        -std::cos(mycam.yaw()));
+		battlePlayerOrigin = mypos +
+		                     glm::vec3(
+			                     0.0f,
+			                     playerBattleMoveReleaseHeight(pendingPlayerMove.id),
+			                     0.0f) +
+		                     forward * 0.75f;
+		battleTargetPosition = pokemonWorldPosition(*target);
+		battleTargetPosition.y += target->isFlying() ? 0.0f : 0.52f;
+		pendingPlayerMoveVolume = BattleMoveVolumeResult();
+		pendingPlayerMoveVolume.impactPosition = battleTargetPosition;
 		pendingBattlePlan.playerAttackEnabled = true;
-		pendingBattlePlan.counterEnabled =
-			target->getHealth() > pendingPlayerDamage.amount;
+		pendingBattlePlan.counterEnabled = true;
+		pendingBattlePlan.playerAttackHit = false;
+		pendingBattlePlan.playerTiming = playerTiming;
+		pendingBattlePlan.counterTiming = pendingWildMove.timing;
 		battleSequenceActive = true;
 		battleInitiatedByWild = false;
 		battleSequenceStarted = now;
 		lastBattlePhase = BattlePhase::PlayerWindup;
 		targetDamageApplied = false;
 		playerDamageApplied = false;
+		playerMoveReleased = false;
+		wildMoveReleased = false;
 		playerEvadedCurrentCounter = false;
-		const glm::vec3 forward(-std::sin(mycam.yaw()), 0.0f,
-		                        -std::cos(mycam.yaw()));
-		battlePlayerOrigin = mypos + glm::vec3(0.0f, 0.9f, 0.0f) +
-		                     forward * 0.75f;
-		battleTargetPosition = pokemonWorldPosition(*target);
-		battleTargetPosition.y += target->isFlying() ? 0.0f : 0.52f;
 		battlePlayerHitPosition = mypos + glm::vec3(0.0f, 0.82f, 0.0f);
+		pendingWildMoveVolume = BattleMoveVolumeResult();
+		pendingWildMoveVolume.impactPosition = battlePlayerHitPosition;
 		currentTarget = PokemonTargetSelection();
-		setStatus("Charizard readies " + std::string(pendingPlayerMove.name) +
-		          " against " + pendingBattleSpecies + ".");
+		const BattleMoveGeometry geometry =
+			battleMoveGeometryFor(pendingPlayerMove.id);
+		std::ostringstream message;
+		message << (perfectCounter ? "Perfect counter · " : "Charizard readies ")
+		        << pendingPlayerMove.name << " · "
+		        << battleMoveShapeName(geometry.shape) << " · " << std::fixed
+		        << std::setprecision(1) << geometry.range << "m against "
+		        << pendingBattleSpecies << ".";
+		setStatus(message.str());
 	}
 
 	void startWildEncounter(Pokemon &attacker, double now)
 	{
-		if (battleSequenceActive || captureSequenceActive || gameFinished ||
+		if (battleSequenceActive || captureProjectile.active ||
+		    captureSequenceActive || gameFinished ||
 		    attacker.getCaught() != 0 || attacker.isFainted() ||
+		    !attacker.isEcologicallyPresent() ||
 		    now < nextWildEncounterTime)
 		{
 			return;
 		}
+		clearPerfectCounterWindow();
+		captureAiming = false;
 
 		pendingBattleTarget = &attacker;
-		pendingBattleSpecies = pokemonSpeciesName(attacker.getSpecies());
+		pendingBattleSpecies = displayPokemonName(attacker);
 		pendingPlayerMove = playerMoveLoadout.selectedMove();
 		pendingWildMove = wildBattleMoveFor(attacker.getSpecies());
 		pendingPlayerDamage = BattleDamageResult();
+		pendingPlayerMoveVolume = BattleMoveVolumeResult();
 		pendingWildDamage = resolveBattleDamage(
 			attacker.getSpecies(), PokemonSpecies::Charizard, pendingWildMove);
 		pendingBattlePlan.playerAttackEnabled = false;
 		pendingBattlePlan.counterEnabled = true;
+		pendingBattlePlan.playerAttackHit = false;
+		pendingBattlePlan.playerTiming = pendingPlayerMove.timing;
+		pendingBattlePlan.counterTiming = pendingWildMove.timing;
 		battleSequenceActive = true;
 		battleInitiatedByWild = true;
 		battleSequenceStarted = now;
 		lastBattlePhase = BattlePhase::Inactive;
 		targetDamageApplied = true;
 		playerDamageApplied = false;
+		playerMoveReleased = true;
+		wildMoveReleased = false;
 		playerEvadedCurrentCounter = false;
 		battlePlayerOrigin = mypos + glm::vec3(0.0f, 0.9f, 0.0f);
 		battleTargetPosition = pokemonWorldPosition(attacker);
 		battleTargetPosition.y += attacker.isFlying() ? 0.0f : 0.52f;
 		battlePlayerHitPosition = mypos + glm::vec3(0.0f, 0.82f, 0.0f);
+		pendingWildMoveVolume = BattleMoveVolumeResult();
+		pendingWildMoveVolume.impactPosition = battlePlayerHitPosition;
 		currentTarget = PokemonTargetSelection();
 		nextWildEncounterTime =
 		    now + battleSequenceDuration(pendingBattlePlan) + 0.9;
 		emitGameCue("wild-alert", pendingWildMove.type);
-		setStatus(pendingBattleSpecies + " lunges with " + pendingWildMove.name +
-		          "! Press Shift to dodge.");
+		setStatus(attacker.isFlying()
+		              ? pendingBattleSpecies + " lines up " +
+		                    pendingWildMove.name +
+		                    "! Change altitude or press Shift to dodge."
+		              : pendingBattleSpecies + " lunges with " +
+		                    pendingWildMove.name + "! Press Shift to dodge.");
 	}
 
 	void updatePokemonAgents(double deltaSeconds, double now)
@@ -1475,9 +2423,27 @@ GLuint rockTex, umbreonTex;
 		float nearestAttackDistance = 100000.0f;
 		float nearestAlertDistance = 100000.0f;
 		float nearestThreatDistance = 100000.0f;
+		int groupAlertedCount = 0;
+		PokemonSpecies groupAlertSpecies = PokemonSpecies::Umbreon;
+		const glm::vec3 playerVelocity = mycam.velocity();
+		const float horizontalNoise = glm::length(glm::vec2(
+			playerVelocity.x, playerVelocity.z)) / 7.0f;
+		const float verticalNoise = std::fabs(playerVelocity.y) / 10.0f;
+		const float playerNoise = glm::clamp(
+			0.10f + horizontalNoise * 0.60f + verticalNoise * 0.25f +
+				(mycam.isDodging() ? 0.25f : 0.0f),
+			0.0f, 1.0f);
+		const bool campSafe = playerInsideCamp();
+		const float wildlifePlayerNoise = campSafe ? 0.0f : playerNoise;
+		const float daylight = worldLightingAt(now).daylight;
 		auto collectBehavior = [&](Pokemon &candidate,
 		                           const PokemonBehaviorEvents &events) {
-			if (candidate.getCaught() != 0 || candidate.isFainted())
+			if (candidate.getCaught() != 0 || candidate.isFainted() ||
+			    !candidate.isEcologicallyPresent())
+			{
+				return;
+			}
+			if (campSafe)
 			{
 				return;
 			}
@@ -1501,65 +2467,391 @@ GLuint rockTex, umbreonTex;
 				nearestAttackDistance = distance;
 			}
 		};
+		auto recordSpeciesBehavior =
+			[&](Pokemon &candidate, PokemonBehaviorState previousState,
+			    const PokemonBehaviorEvents &events) {
+				const PokemonSpecies species = candidate.getSpecies();
+				if (species == PokemonSpecies::Bulbasaur &&
+				    previousState != PokemonBehaviorState::Flee &&
+				    candidate.getBehaviorState() == PokemonBehaviorState::Flee &&
+				    researchProgress.bulbasaurFleeObservations == 0)
+				{
+					recordBulbasaurFleeObservation(researchProgress);
+					saveGameProgress();
+				}
+				if (species == PokemonSpecies::Umbreon && events.alertStarted &&
+				    researchProgress.umbreonWarningObservations == 0)
+				{
+					recordUmbreonWarningObservation(researchProgress);
+					saveGameProgress();
+				}
+			};
 		const CaptureSequenceSample captureSample = currentCaptureSample(now);
 		const std::vector<PokemonNavigationBlocker> navigationBlockers =
 			makeGroundPokemonNavigationBlockers();
+		const std::vector<PokemonSightlineCylinder> sightlineBlockers =
+			makePokemonSightlineBlockers();
 		for (int i = 0; i < NUM_POKEMON; ++i)
 		{
-			if (isPendingBattleTarget(umbreons[i]) ||
+			const bool interactionPinned = isPendingBattleTarget(umbreons[i]) ||
 			    (isPendingCaptureTarget(umbreons[i]) &&
-			     captureSample.phase != CapturePhase::BrokeFree))
+			     captureSample.phase != CapturePhase::BrokeFree);
+			if (!interactionPinned)
+			{
+				umbreons[i].setEcologicallyPresent(pokemonEcologySlotPresent(
+					umbreons[i].getSpecies(), umbreons[i].getID(), daylight));
+			}
+			if (interactionPinned || !umbreons[i].isEcologicallyPresent())
 			{
 				continue;
 			}
+			const PokemonBehaviorState previousState =
+				umbreons[i].getBehaviorState();
+			if ((previousState == PokemonBehaviorState::Idle ||
+			     previousState == PokemonBehaviorState::Wander) &&
+			    fieldLureAttracts(umbreons[i].getSpecies(), umbreons[i].getPos(),
+			                     umbreons[i].getAlertness(), fieldLure))
+			{
+				umbreons[i].investigateAt(
+					fieldLure.position.x, fieldLure.position.y,
+					fieldLure.position.z);
+			}
 			const PokemonBehaviorEvents events =
-			    umbreons[i].update(deltaSeconds, mypos, navigationBlockers);
+			    umbreons[i].update(
+					deltaSeconds, mypos, navigationBlockers, wildlifePlayerNoise,
+					!campSafe && pokemonCanSeePlayerThroughWorld(
+					                 umbreons[i], sightlineBlockers),
+					daylight);
+			if (events.alertStarted && !campSafe)
+			{
+				const int recipients =
+					propagateGroundPokemonAlert(i, now, daylight, sightlineBlockers);
+				if (recipients > 0)
+				{
+					groupAlertedCount += recipients;
+					groupAlertSpecies = umbreons[i].getSpecies();
+				}
+			}
+			recordSpeciesBehavior(umbreons[i], previousState, events);
 			collectBehavior(umbreons[i], events);
 		}
 		for (int i = 0; i < FLYING_POKEMON; ++i)
 		{
-			if (isPendingBattleTarget(charizards[i]) ||
+			const bool interactionPinned = isPendingBattleTarget(charizards[i]) ||
 			    (isPendingCaptureTarget(charizards[i]) &&
-			     captureSample.phase != CapturePhase::BrokeFree))
+			     captureSample.phase != CapturePhase::BrokeFree);
+			if (!interactionPinned)
+			{
+				charizards[i].setEcologicallyPresent(pokemonEcologySlotPresent(
+					charizards[i].getSpecies(), charizards[i].getID(), daylight));
+			}
+			if (interactionPinned || !charizards[i].isEcologicallyPresent())
 			{
 				continue;
 			}
 			const PokemonBehaviorEvents events =
-			    charizards[i].update(deltaSeconds, mypos);
+			    charizards[i].update(
+					deltaSeconds, mypos, {}, wildlifePlayerNoise,
+					!campSafe && pokemonCanSeePlayerThroughWorld(
+					                 charizards[i], sightlineBlockers),
+					daylight);
 			collectBehavior(charizards[i], events);
+		}
+		const bool alphaInteractionPinned = isPendingBattleTarget(alphaCharizard) ||
+			(isPendingCaptureTarget(alphaCharizard) &&
+			 captureSample.phase != CapturePhase::BrokeFree);
+		if (!alphaNestProgress.active || alphaNestProgress.resolved ||
+		    alphaCharizard.getCaught() != 0 || alphaCharizard.isFainted())
+		{
+			hideAlphaPokemon();
+		}
+		else if (!alphaInteractionPinned)
+		{
+			alphaCharizard.setEcologicallyPresent(true);
+			const PokemonBehaviorEvents events = alphaCharizard.update(
+				deltaSeconds, mypos, {}, wildlifePlayerNoise,
+				!campSafe && pokemonCanSeePlayerThroughWorld(
+				                 alphaCharizard, sightlineBlockers),
+				daylight);
+			collectBehavior(alphaCharizard, events);
 		}
 		refreshPokemonCollisionObstacles();
 
-		if (nearestAttack && !battleSequenceActive && !captureSequenceActive &&
+		if (nearestAttack && !battleSequenceActive && !captureProjectile.active &&
+		    !captureSequenceActive &&
 		    now >= nextWildEncounterTime)
 		{
 			startWildEncounter(*nearestAttack, now);
 			return;
 		}
-		if (nearestAlert && !battleSequenceActive && !captureSequenceActive)
+		if (nearestAlert && !battleSequenceActive && !captureProjectile.active &&
+		    !captureSequenceActive)
 		{
-			emitGameCue("wild-alert", PokemonType::Dark);
-			setStatus("Wild Umbreon noticed you. Leave its territory or prepare to dodge.");
+			emitGameCue(
+				groupAlertedCount > 0 ? "group-alert" : "wild-alert",
+				wildBattleMoveFor(nearestAlert->getSpecies()).type);
+			const std::string species = displayPokemonName(*nearestAlert);
+			std::string message;
+			if (nearestAlert->getSpecies() == PokemonSpecies::Umbreon)
+			{
+				message = "Wild " + species +
+				          " noticed you. Leave its territory or prepare to dodge.";
+			}
+			else if (nearestAlert->isFlying())
+			{
+				message = "Wild " + species +
+				          " spotted you. Change altitude or break line of sight before its attack run.";
+			}
+			else
+			{
+				message = "Wild " + species +
+				          " is watching you. Break line of sight or circle behind it.";
+			}
+			if (groupAlertedCount > 0)
+			{
+				message += " Its warning alerted " +
+				           std::to_string(groupAlertedCount) + " nearby " +
+				           pokemonSpeciesName(groupAlertSpecies) + ".";
+			}
+			setStatus(message);
 		}
+	}
+
+	glm::vec3 pokemonSightPoint(const Pokemon &candidate) const
+	{
+		glm::vec3 point = pokemonWorldPosition(candidate);
+		if (candidate.isFlying())
+		{
+			point.y += 0.45f;
+		}
+		else
+		{
+			switch (candidate.getSpecies())
+			{
+			case PokemonSpecies::Umbreon: point.y += 0.72f; break;
+			case PokemonSpecies::Eevee: point.y += 0.62f; break;
+			case PokemonSpecies::Bulbasaur: point.y += 0.58f; break;
+			case PokemonSpecies::Charizard: point.y += 0.75f; break;
+			}
+		}
+		return point;
+	}
+
+	std::vector<PokemonSightlineCylinder> makePokemonSightlineBlockers() const
+	{
+		std::vector<PokemonSightlineCylinder> blockers;
+		blockers.reserve(ROCK_PLACEMENTS.size() + LANDMARK_PLACEMENTS.size() + 3);
+		for (const WorldRockPlacement &rock : ROCK_PLACEMENTS)
+		{
+			PokemonSightlineCylinder blocker;
+			blocker.center = rock.center;
+			blocker.radius = std::max(rock.scale.x, rock.scale.z) * 1.18f;
+			blocker.baseY =
+				terrainHeightMap.heightAt(rock.center.x, rock.center.y);
+			blocker.height = rock.scale.y * 2.36f;
+			blockers.push_back(blocker);
+		}
+		for (const WorldLandmarkPlacement &landmark : LANDMARK_PLACEMENTS)
+		{
+			PokemonSightlineCylinder blocker;
+			blocker.center = landmark.center;
+			blocker.radius = landmark.occlusionRadius;
+			blocker.baseY = terrainHeightMap.heightAt(
+				landmark.center.x, landmark.center.y);
+			blocker.height = landmark.height;
+			blockers.push_back(blocker);
+		}
+		auto addCampBlocker = [&](const glm::vec2 &center, float radius,
+		                          float height) {
+			PokemonSightlineCylinder blocker;
+			blocker.center = center;
+			blocker.radius = radius;
+			blocker.baseY = terrainHeightMap.heightAt(center.x, center.y);
+			blocker.height = height;
+			blockers.push_back(blocker);
+		};
+		addCampBlocker(fieldCamp.tentCenter, 2.35f, 3.0f);
+		addCampBlocker(fieldCamp.workbenchCenter, 1.65f, 1.2f);
+		addCampBlocker(fieldCamp.supplyCrateCenter, 1.05f, 1.5f);
+		return blockers;
+	}
+
+	std::vector<BattleMoveBlockerCylinder> makeBattleMoveBlockers() const
+	{
+		const std::vector<PokemonSightlineCylinder> sightlineBlockers =
+			makePokemonSightlineBlockers();
+		std::vector<BattleMoveBlockerCylinder> blockers;
+		blockers.reserve(sightlineBlockers.size());
+		for (const PokemonSightlineCylinder &sightlineBlocker : sightlineBlockers)
+		{
+			BattleMoveBlockerCylinder blocker;
+			blocker.center = sightlineBlocker.center;
+			blocker.radius = sightlineBlocker.radius;
+			blocker.baseY = sightlineBlocker.baseY;
+			blocker.height = sightlineBlocker.height;
+			blockers.push_back(blocker);
+		}
+		return blockers;
+	}
+
+	BattleMoveVolumeResult resolveSelectedBattleMove(
+		const BattleMove &move, const Pokemon &target,
+		const glm::vec3 &origin, const glm::vec3 &horizontalForward) const
+	{
+		BattleMoveVolumeInput input;
+		input.origin = origin;
+		input.targetCenter = captureCollisionCenter(target);
+		input.targetRadius = captureCollisionRadius(target);
+		const glm::vec3 toTarget = input.targetCenter - origin;
+		const float targetDistance = glm::length(toTarget);
+		if (targetDistance > 0.000001f)
+		{
+			const glm::vec3 targetDirection = toTarget / targetDistance;
+			input.aimDirection = glm::vec3(
+				horizontalForward.x, targetDirection.y, horizontalForward.z);
+		}
+		else
+		{
+			input.aimDirection = horizontalForward;
+		}
+		input.blockers = makeBattleMoveBlockers();
+		input.groundHeightProvider = [this](float x, float z) {
+			return terrainHeightMap.heightAt(x, z);
+		};
+		return resolveBattleMoveVolume(move.id, input);
+	}
+
+	BattleMoveVolumeResult resolveWildBattleMove(
+		const BattleMove &move, const Pokemon &attacker,
+		const glm::vec3 &targetCenter) const
+	{
+		BattleMoveVolumeInput input;
+		input.origin = captureCollisionCenter(attacker);
+		input.targetCenter = targetCenter;
+		input.targetRadius = 0.78f;
+		input.aimDirection = targetCenter - input.origin;
+		input.blockers = makeBattleMoveBlockers();
+		input.groundHeightProvider = [this](float x, float z) {
+			return terrainHeightMap.heightAt(x, z);
+		};
+		return resolveBattleMoveVolume(move.id, input);
+	}
+
+	bool clearPokemonSightline(
+		const glm::vec3 &observer, const glm::vec3 &subject,
+		const std::vector<PokemonSightlineCylinder> &blockers) const
+	{
+		return pokemonSightlineClear(
+			observer, subject, blockers,
+			[this](float x, float z) { return terrainHeightMap.heightAt(x, z); });
+	}
+
+	bool pokemonCanSeePlayerThroughWorld(
+		const Pokemon &candidate,
+		const std::vector<PokemonSightlineCylinder> &blockers) const
+	{
+		const glm::vec3 observer = pokemonSightPoint(candidate);
+		const glm::vec3 subject = mypos + glm::vec3(0.0f, 0.82f, 0.0f);
+		const float horizontalDistance = glm::length(glm::vec2(
+			subject.x - observer.x, subject.z - observer.z));
+		return horizontalDistance > 20.0f ||
+		       clearPokemonSightline(observer, subject, blockers);
+	}
+
+	int propagateGroundPokemonAlert(
+		int sourceIndex, double now, float daylight,
+		const std::vector<PokemonSightlineCylinder> &blockers)
+	{
+		if (sourceIndex < 0 || sourceIndex >= NUM_POKEMON)
+		{
+			return 0;
+		}
+		Pokemon &source = umbreons[sourceIndex];
+		const glm::vec3 sourcePoint = pokemonSightPoint(source);
+		std::vector<PokemonGroupAlertCandidate> candidates;
+		candidates.reserve(NUM_POKEMON);
+		for (int index = 0; index < NUM_POKEMON; ++index)
+		{
+			Pokemon &candidate = umbreons[index];
+			PokemonGroupAlertCandidate alertCandidate;
+			alertCandidate.id = index;
+			alertCandidate.species = candidate.getSpecies();
+			alertCandidate.position = candidate.getPos();
+			alertCandidate.alertness = candidate.getAlertness();
+			const PokemonBehaviorState state = candidate.getBehaviorState();
+			alertCandidate.eligible =
+				candidate.getCaught() == 0 && !candidate.isFainted() &&
+				candidate.isEcologicallyPresent() &&
+				pokemonEcologySlotPresent(candidate.getSpecies(), candidate.getID(),
+				                          daylight) &&
+				!isPendingBattleTarget(candidate) &&
+				!isPendingCaptureTarget(candidate) &&
+				(state == PokemonBehaviorState::Idle ||
+				 state == PokemonBehaviorState::Wander);
+			if (alertCandidate.eligible && index != sourceIndex &&
+			    alertCandidate.species == source.getSpecies())
+			{
+				alertCandidate.sightlineClear = clearPokemonSightline(
+					sourcePoint, pokemonSightPoint(candidate), blockers);
+			}
+			candidates.push_back(alertCandidate);
+		}
+		const PokemonGroupAlertResult result = propagatePokemonGroupAlert(
+			groupAlertState, now, sourceIndex, source.getSpecies(), source.getPos(),
+			candidates);
+		for (int recipientId : result.recipientIds)
+		{
+			umbreons[recipientId].receiveCompanionAlert();
+		}
+		return static_cast<int>(result.recipientIds.size());
 	}
 
 	std::vector<PokemonNavigationBlocker> makeGroundPokemonNavigationBlockers() const
 	{
 		std::vector<PokemonNavigationBlocker> blockers;
-		blockers.reserve(ROCK_PLACEMENTS.size() + NUM_POKEMON);
+		blockers.reserve(ROCK_PLACEMENTS.size() + LANDMARK_PLACEMENTS.size() +
+		                 NUM_POKEMON + 4);
 		for (std::size_t index = 0; index < ROCK_PLACEMENTS.size(); ++index)
 		{
-			const RockPlacement &rock = ROCK_PLACEMENTS[index];
+			const WorldRockPlacement &rock = ROCK_PLACEMENTS[index];
 			PokemonNavigationBlocker blocker;
 			blocker.id = -1000 - static_cast<int>(index);
 			blocker.center = rock.center;
 			blocker.radius = std::max(rock.scale.x, rock.scale.z) * 1.18f;
 			blockers.push_back(blocker);
 		}
+		for (std::size_t index = 0; index < LANDMARK_PLACEMENTS.size(); ++index)
+		{
+			const WorldLandmarkPlacement &landmark = LANDMARK_PLACEMENTS[index];
+			PokemonNavigationBlocker blocker;
+			blocker.id = -3000 - static_cast<int>(index);
+			blocker.center = landmark.center;
+			blocker.radius = landmark.collisionRadius;
+			blockers.push_back(blocker);
+		}
+		const std::array<std::pair<glm::vec2, float>, 3> campBlockers = {{
+			{fieldCamp.tentCenter, 2.35f},
+			{fieldCamp.workbenchCenter, 1.65f},
+			{fieldCamp.supplyCrateCenter, 1.05f},
+		}};
+		for (std::size_t index = 0; index < campBlockers.size(); ++index)
+		{
+			PokemonNavigationBlocker blocker;
+			blocker.id = -2000 - static_cast<int>(index);
+			blocker.center = campBlockers[index].first;
+			blocker.radius = campBlockers[index].second;
+			blockers.push_back(blocker);
+		}
+		PokemonNavigationBlocker campExclusion;
+		campExclusion.id = -2003;
+		campExclusion.center = fieldCamp.center;
+		campExclusion.radius = fieldCamp.wildExclusionRadius;
+		blockers.push_back(campExclusion);
 		for (int index = 0; index < NUM_POKEMON; ++index)
 		{
 			const Pokemon &candidate = umbreons[index];
-			if (candidate.getCaught() != 0 || candidate.isFainted())
+			if (candidate.getCaught() != 0 || candidate.isFainted() ||
+			    !candidate.isEcologicallyPresent())
 			{
 				continue;
 			}
@@ -1588,7 +2880,8 @@ GLuint rockTex, umbreonTex;
 			StaticCollisionCylinder collider;
 			collider.center = glm::vec2(position.x, position.z);
 			collider.baseY = terrainHeightMap.heightAt(position.x, position.z);
-			if (candidate.getCaught() == 0 && !candidate.isFainted())
+			if (candidate.getCaught() == 0 && !candidate.isFainted() &&
+			    candidate.isEcologicallyPresent())
 			{
 				const PokemonSpecies species = candidate.getSpecies();
 				const bool umbreon = species == PokemonSpecies::Umbreon;
@@ -1608,19 +2901,20 @@ GLuint rockTex, umbreonTex;
 
 	void refreshTarget()
 	{
-		if (captureSequenceActive || battleSequenceActive)
+		if (captureProjectile.active || captureSequenceActive || battleSequenceActive)
 		{
 			currentTarget = PokemonTargetSelection();
 			return;
 		}
 		std::vector<PokemonTargetCandidate> candidates;
-		candidates.reserve(NUM_POKEMON + FLYING_POKEMON);
+		candidates.reserve(NUM_POKEMON + FLYING_POKEMON + 1);
 		for (int i = 0; i < NUM_POKEMON; ++i)
 		{
 			PokemonTargetCandidate candidate;
 			candidate.index = i;
 			candidate.caught = umbreons[i].getCaught() != 0 ||
-			                   umbreons[i].isFainted();
+			                   umbreons[i].isFainted() ||
+			                   !umbreons[i].isEcologicallyPresent();
 			candidate.position = pokemonWorldPosition(umbreons[i]);
 			candidates.push_back(candidate);
 		}
@@ -1630,11 +2924,28 @@ GLuint rockTex, umbreonTex;
 			candidate.index = i;
 			candidate.flying = true;
 			candidate.caught = charizards[i].getCaught() != 0 ||
-			                   charizards[i].isFainted();
+			                   charizards[i].isFainted() ||
+			                   !charizards[i].isEcologicallyPresent();
 			candidate.position = pokemonWorldPosition(charizards[i]);
 			candidates.push_back(candidate);
 		}
-		currentTarget = selectPokemonTarget(mypos, mycam.yaw(), candidates);
+		PokemonTargetCandidate alphaCandidate;
+		alphaCandidate.index = ALPHA_TARGET_INDEX;
+		alphaCandidate.flying = true;
+		alphaCandidate.caught = alphaCharizard.getCaught() != 0 ||
+		                         alphaCharizard.isFainted() ||
+		                         !alphaCharizard.isEcologicallyPresent();
+		alphaCandidate.position = pokemonWorldPosition(alphaCharizard);
+		candidates.push_back(alphaCandidate);
+		PokemonTargetingConfig targetingConfig;
+		const BattleMoveGeometry selectedGeometry = battleMoveGeometryFor(
+			playerMoveLoadout.selectedMove().id);
+		targetingConfig.groundRange = std::max(
+			targetingConfig.groundRange, selectedGeometry.range);
+		targetingConfig.flyingRange = std::max(
+			targetingConfig.flyingRange, selectedGeometry.range);
+		currentTarget = selectPokemonTarget(
+			mypos, mycam.yaw(), candidates, targetingConfig);
 	}
 
 	Pokemon *targetedPokemon()
@@ -1643,23 +2954,39 @@ GLuint rockTex, umbreonTex;
 		{
 			return nullptr;
 		}
+		Pokemon *candidate = nullptr;
 		if (currentTarget.flying)
 		{
-			return currentTarget.index < FLYING_POKEMON ? &charizards[currentTarget.index] : nullptr;
+			candidate = currentTarget.index == ALPHA_TARGET_INDEX
+			                ? &alphaCharizard
+			                : (currentTarget.index < FLYING_POKEMON
+			                       ? &charizards[currentTarget.index]
+			                       : nullptr);
 		}
-		return currentTarget.index < NUM_POKEMON ? &umbreons[currentTarget.index] : nullptr;
+		else
+		{
+			candidate = currentTarget.index < NUM_POKEMON
+			                ? &umbreons[currentTarget.index]
+			                : nullptr;
+		}
+		return candidate && candidate->getCaught() == 0 &&
+		               !candidate->isFainted() &&
+		               candidate->isEcologicallyPresent()
+		           ? candidate
+		           : nullptr;
 	}
 
 	FieldRadarContact nearestResearchRadarContact() const
 	{
 		std::vector<FieldRadarCandidate> candidates;
-		candidates.reserve(NUM_POKEMON + FLYING_POKEMON);
+		candidates.reserve(NUM_POKEMON + FLYING_POKEMON + 1);
 		for (int index = 0; index < NUM_POKEMON; ++index)
 		{
 			FieldRadarCandidate candidate;
 			candidate.id = index;
 			candidate.available = umbreons[index].getCaught() == 0 &&
-			                      !umbreons[index].isFainted();
+			                      !umbreons[index].isFainted() &&
+			                      umbreons[index].isEcologicallyPresent();
 			candidate.position = pokemonWorldPosition(umbreons[index]);
 			candidates.push_back(candidate);
 		}
@@ -1668,10 +2995,23 @@ GLuint rockTex, umbreonTex;
 			FieldRadarCandidate candidate;
 			candidate.id = NUM_POKEMON + index;
 			candidate.available = charizards[index].getCaught() == 0 &&
-			                      !charizards[index].isFainted();
+			                      !charizards[index].isFainted() &&
+			                      charizards[index].isEcologicallyPresent();
 			candidate.position = pokemonWorldPosition(charizards[index]);
 			candidates.push_back(candidate);
 		}
+		FieldRadarCandidate alphaCandidate;
+		alphaCandidate.id = NUM_POKEMON + ALPHA_TARGET_INDEX;
+		alphaCandidate.available = alphaCharizard.getCaught() == 0 &&
+		                           !alphaCharizard.isFainted() &&
+		                           alphaCharizard.isEcologicallyPresent();
+		alphaCandidate.position = pokemonWorldPosition(alphaCharizard);
+		if (alphaNestProgress.active && alphaCandidate.available)
+		{
+			return selectNearestFieldRadarContact(
+				mypos, mycam.yaw(), {alphaCandidate});
+		}
+		candidates.push_back(alphaCandidate);
 		return selectNearestFieldRadarContact(mypos, mycam.yaw(), candidates);
 	}
 
@@ -1686,241 +3026,364 @@ GLuint rockTex, umbreonTex;
 			return &umbreons[contact.id];
 		}
 		const int flyingIndex = contact.id - NUM_POKEMON;
+		if (flyingIndex == ALPHA_TARGET_INDEX)
+		{
+			return &alphaCharizard;
+		}
 		return flyingIndex < FLYING_POKEMON ? &charizards[flyingIndex] : nullptr;
 	}
 
-	void updateWebTelemetry()
+	HudTelemetry collectHudTelemetry(double now)
 	{
-#ifdef __EMSCRIPTEN__
-		const double now = glfwGetTime();
-		if (now < nextTelemetryUpdate)
+		static_assert(HUD_MOVE_SLOT_COUNT == PLAYER_MOVE_SLOT_COUNT,
+		              "HUD move slots must match the battle loadout");
+		HudTelemetry telemetry;
+		std::ostringstream summary;
+		float regionalDistance = 0.0f;
+		const WorldInterestPointPlacement *regionalPoint =
+			nearestRegionalResearchPoint(regionalDistance);
+		const bool nearRegionalPoint =
+			regionalPoint &&
+			regionalDistance <= regionalPoint->interactionRadius + 4.0f;
+		const RegionalObservationStatus regionalStatus = nearRegionalPoint
+			? evaluateRegionalObservation(
+			      regionalObservationInput(*regionalPoint, regionalDistance, now))
+			: RegionalObservationStatus::InvalidInput;
+		const WorldInterestPointPlacement *alphaPoint = alphaNestPoint();
+		const float alphaDistance = distanceToAlphaNest();
+		const bool nearAlphaPoint =
+			alphaPoint && alphaDistance <= alphaPoint->interactionRadius + 4.0f;
+		const AlphaNestInteractionStatus alphaStatus = nearAlphaPoint
+			? evaluateAlphaNestInteraction(
+			      alphaNestProgress, alphaNestInteractionInput(alphaDistance))
+			: AlphaNestInteractionStatus::InvalidInput;
+		if (captureAiming)
 		{
-			return;
+			summary << "Aiming Poke Ball · Charge "
+			        << static_cast<int>(std::round(currentCaptureCharge(now) * 100.0f))
+			        << "%";
 		}
-		nextTelemetryUpdate = now + 0.12;
-		std::ostringstream telemetry;
-		if (battleSequenceActive)
+		else if (captureProjectile.active)
+		{
+			summary << "Poke Ball airborne";
+		}
+		else if (battleSequenceActive)
 		{
 			const BattleSequenceSample sample = currentBattleSample(now);
-			telemetry << pendingBattleSpecies << " · ";
+			summary << pendingBattleSpecies << " · ";
 			switch (sample.phase)
 			{
 			case BattlePhase::PlayerWindup:
-				telemetry << "Charging Ember";
+				summary << "Charging " << pendingPlayerMove.name;
 				break;
 			case BattlePhase::PlayerProjectile:
-				telemetry << "Ember airborne";
+				summary << pendingPlayerMove.name << " active";
 				break;
 			case BattlePhase::TargetImpact:
-				telemetry << "Target hit";
+				summary << (pendingPlayerMoveVolume.hitTarget
+				                ? "Target hit"
+				                : "Attack blocked or missed");
+				break;
+			case BattlePhase::PlayerRecovery:
+				summary << pendingPlayerMove.name << " recovery";
 				break;
 			case BattlePhase::WildWindup:
-				telemetry << (battleInitiatedByWild ? "Attacking" : "Countering");
+				summary << (battleInitiatedByWild ? "Attacking" : "Countering");
 				break;
-			case BattlePhase::WildProjectile:
-				telemetry << pendingWildMove.name;
-				break;
+			case BattlePhase::WildProjectile: summary << pendingWildMove.name; break;
 			case BattlePhase::PlayerImpact:
-				telemetry << (playerEvadedCurrentCounter
-				                  ? "Charizard evaded"
-				                  : "Charizard hit");
+				summary << (!pendingWildMoveVolume.hitTarget
+				                ? "Wild attack blocked"
+				                : (playerEvadedCurrentCounter
+				                       ? "Charizard evaded"
+				                       : "Charizard hit"));
 				break;
-			case BattlePhase::Recovery:
-				telemetry << "Recovering";
-				break;
+			case BattlePhase::Recovery: summary << "Recovering"; break;
 			case BattlePhase::Inactive:
-			case BattlePhase::Finished:
-				telemetry << "Resolving";
-				break;
+			case BattlePhase::Finished: summary << "Resolving"; break;
 			}
 			if (pendingBattleTarget)
 			{
-				telemetry << " · Enemy HP " << pendingBattleTarget->getHealth()
-				          << "/" << pendingBattleTarget->getMaximumHealth();
+				summary << " · Enemy HP " << pendingBattleTarget->getHealth()
+				        << "/" << pendingBattleTarget->getMaximumHealth();
 			}
 		}
 		else if (captureSequenceActive)
 		{
 			const CaptureSequenceSample sample = currentCaptureSample(now);
-			telemetry << pendingCaptureSpecies << " · ";
+			summary << pendingCaptureSpecies << " · ";
 			switch (sample.phase)
 			{
-			case CapturePhase::Throwing:
-				telemetry << "Ball airborne";
-				break;
-			case CapturePhase::Absorbing:
-				telemetry << "Hit";
-				break;
-			case CapturePhase::Shaking:
-				telemetry << "Shake " << sample.shakeIndex;
-				break;
-			case CapturePhase::Succeeded:
-				telemetry << "Captured";
-				break;
-			case CapturePhase::BrokeFree:
-				telemetry << "Broke free";
-				break;
+			case CapturePhase::Throwing: summary << "Ball airborne"; break;
+			case CapturePhase::Absorbing: summary << "Hit"; break;
+			case CapturePhase::Shaking: summary << "Shake " << sample.shakeIndex; break;
+			case CapturePhase::Succeeded: summary << "Captured"; break;
+			case CapturePhase::BrokeFree: summary << "Broke free"; break;
 			case CapturePhase::Inactive:
-			case CapturePhase::Finished:
-				telemetry << "Resolving";
-				break;
+			case CapturePhase::Finished: summary << "Resolving"; break;
 			}
+		}
+		else if (researchSubmitted)
+		{
+			summary << "Research submitted · Score "
+			        << lastCampSettlementScore << " · Supplies ready";
+		}
+		else if (nearAlphaPoint)
+		{
+			summary << "Alpha Charizard Nest · " << std::fixed
+			        << std::setprecision(1) << alphaDistance << "m · "
+			        << alphaNestPrompt(alphaStatus);
+		}
+		else if (nearRegionalPoint)
+		{
+			summary << regionalResearchSiteName(regionalPoint->kind) << " · "
+			        << std::fixed << std::setprecision(1) << regionalDistance
+			        << "m · "
+			        << regionalObservationPrompt(*regionalPoint, regionalStatus);
+		}
+		else if (researchReadyToSubmit())
+		{
+			summary << "Return to camp · " << std::fixed << std::setprecision(1)
+			        << horizontalDistanceToCamp(mypos, fieldCamp) << "m · "
+			        << (playerReadyAtCamp() ? "Press F to submit"
+			                                : (playerInsideCamp()
+			                                       ? "Land to submit"
+			                                       : "Follow camp beacon"));
+		}
+		else if (playerInsideCamp())
+		{
+			summary << "Field camp · Safe zone · F mission briefing";
+		}
+		else if (perfectCounterWindowActive(now))
+		{
+			summary << "Perfect counter · "
+			        << displayPokemonName(*perfectCounterTarget)
+			        << " · " << std::fixed << std::setprecision(1)
+			        << perfectCounterWindowRemaining(now)
+			        << "s · X for +35% damage";
 		}
 		else if (overworldThreat)
 		{
-			telemetry << "Wild alert · "
-			          << pokemonSpeciesName(overworldThreat->getSpecies()) << " "
-			          << std::fixed << std::setprecision(1)
-			          << overworldThreatDistance << "m · "
-			          << (overworldThreat->getBehaviorState() ==
-			                      PokemonBehaviorState::Pursue
-			                  ? "Pursuing"
-			                  : "Watching");
+			summary << "Wild alert · "
+			        << displayPokemonName(*overworldThreat) << " "
+			        << std::fixed << std::setprecision(1)
+			        << overworldThreatDistance << "m · "
+			        << (overworldThreat->getBehaviorState() ==
+			                    PokemonBehaviorState::Pursue
+			                ? "Pursuing"
+			                : "Watching");
 		}
 		else if (Pokemon *target = targetedPokemon())
 		{
-			telemetry << pokemonSpeciesName(target->getSpecies()) << " "
-			          << std::fixed << std::setprecision(1)
-			          << currentTarget.distance << "m · HP "
-			          << target->getHealth() << "/" << target->getMaximumHealth();
-		}
-		else
-		{
-			telemetry << "No target";
-		}
-		telemetry << " · " << (mycam.gravityEnabled() ? "Gravity" : "Hover")
-		          << " · " << (mycam.grounded() ? "Grounded" : "Airborne")
-		          << " · Charizard HP " << playerHealth << "/"
-		          << battleStatsFor(PokemonSpecies::Charizard).maximumHealth;
-		const std::string text = telemetry.str();
-		EM_ASM({
-			if (Module.onGameTelemetry)
+			summary << displayPokemonName(*target) << " "
+			        << std::fixed << std::setprecision(1) << currentTarget.distance
+			        << "m · HP " << target->getHealth() << "/"
+			        << target->getMaximumHealth() << " · Alert "
+			        << static_cast<int>(std::round(target->getAlertness() * 100.0f))
+			        << "%";
+			if (hasBackHitOpportunity(*target, mypos))
 			{
-				Module.onGameTelemetry(UTF8ToString($0));
+				summary << " · Back bonus";
 			}
-		}, text.c_str());
-
-		Pokemon *hudTarget = nullptr;
-		if (battleSequenceActive)
-		{
-			hudTarget = pendingBattleTarget;
-		}
-		else if (captureSequenceActive)
-		{
-			hudTarget = pendingCaptureTarget;
 		}
 		else
 		{
-			hudTarget = targetedPokemon();
+			summary << "No target";
 		}
-		const bool targetVisible = hudTarget != nullptr;
-		const std::string targetName = targetVisible
-		                                   ? pokemonSpeciesName(hudTarget->getSpecies())
-		                                   : std::string();
-		const int targetHealth = targetVisible ? hudTarget->getHealth() : 0;
-		const int targetMaximum = targetVisible
-		                                  ? hudTarget->getMaximumHealth()
-		                                  : 1;
-		const int playerMaximum =
+		summary << " · " << (mycam.gravityEnabled() ? "Gravity" : "Hover")
+		        << " · " << (mycam.grounded() ? "Grounded" : "Airborne")
+		        << " · Charizard HP " << playerHealth << "/"
+		        << battleStatsFor(PokemonSpecies::Charizard).maximumHealth;
+		const float daylight = worldLightingAt(now).daylight;
+		summary << " · " << pokemonEcologyPhaseName(daylight) << " · "
+		        << pokemonEcologyFieldHint(daylight);
+		telemetry.summary = summary.str();
+
+		telemetry.player.health = playerHealth;
+		telemetry.player.maximumHealth =
 			battleStatsFor(PokemonSpecies::Charizard).maximumHealth;
-		EM_ASM({
-			if (Module.onBattleHud)
-			{
-				Module.onBattleHud($0, $1, UTF8ToString($2), $3, $4, $5 !== 0);
-			}
-		}, playerHealth, playerMaximum, targetName.c_str(), targetHealth,
-		   targetMaximum, targetVisible ? 1 : 0);
+		Pokemon *hudTarget = battleSequenceActive
+		                         ? pendingBattleTarget
+		                         : (captureSequenceActive
+		                                ? pendingCaptureTarget
+		                                : (perfectCounterWindowActive(now)
+		                                       ? perfectCounterTarget
+		                                       : targetedPokemon()));
+		telemetry.target.visible = hudTarget != nullptr;
+		if (hudTarget)
+		{
+			telemetry.target.name = displayPokemonName(*hudTarget);
+			telemetry.target.health = hudTarget->getHealth();
+			telemetry.target.maximumHealth = hudTarget->getMaximumHealth();
+			telemetry.target.alertness = hudTarget->getAlertness();
+			telemetry.target.backHitOpportunity =
+				hasBackHitOpportunity(*hudTarget, mypos);
+		}
 
-		EM_ASM({
-			if (Module.onDodgeHud)
-			{
-				Module.onDodgeHud($0, $1, $2 !== 0, $3 !== 0);
-			}
-		}, mycam.dodgeCooldownRemaining(), mycam.dodgeCooldownFraction(),
-		   mycam.isDodging() ? 1 : 0, mycam.isInvulnerable() ? 1 : 0);
+		telemetry.dodge.remainingSeconds = mycam.dodgeCooldownRemaining();
+		telemetry.dodge.counterWindowRemainingSeconds =
+			perfectCounterWindowRemaining(now);
+		telemetry.dodge.cooldownFraction = mycam.dodgeCooldownFraction();
+		telemetry.dodge.dodging = mycam.isDodging();
+		telemetry.dodge.invulnerable = mycam.isInvulnerable();
 
-		const bool threatVisible = overworldThreat && !battleSequenceActive &&
+		telemetry.threat.visible = overworldThreat && !battleSequenceActive &&
 		                           !captureSequenceActive && !gameFinished;
-		const std::string threatName = threatVisible
-		                                   ? pokemonSpeciesName(
-		                                         overworldThreat->getSpecies())
-		                                   : std::string();
-		const bool threatPursuing =
-		    threatVisible && overworldThreat->getBehaviorState() ==
-		                         PokemonBehaviorState::Pursue;
-		EM_ASM({
-			if (Module.onThreatHud)
-			{
-				Module.onThreatHud(
-					UTF8ToString($0), $1, $2 !== 0, $3 !== 0);
-			}
-		}, threatName.c_str(), overworldThreatDistance,
-		   threatPursuing ? 1 : 0, threatVisible ? 1 : 0);
+		if (telemetry.threat.visible)
+		{
+			telemetry.threat.name = displayPokemonName(*overworldThreat);
+			telemetry.threat.distance = overworldThreatDistance;
+			telemetry.threat.pursuing =
+				overworldThreat->getBehaviorState() == PokemonBehaviorState::Pursue;
+		}
 
 		const FieldRadarContact radarContact = nearestResearchRadarContact();
 		Pokemon *radarPokemon = pokemonForRadarContact(radarContact);
-		const bool radarVisible = radarPokemon != nullptr && !gameFinished;
-		const std::string radarName = radarVisible
-		                                  ? pokemonSpeciesName(radarPokemon->getSpecies())
-		                                  : std::string();
-		EM_ASM({
-			if (Module.onFieldRadar)
-			{
-				Module.onFieldRadar(
-					UTF8ToString($0), $1, $2, $3 !== 0);
-			}
-		}, radarName.c_str(), radarContact.distance, radarContact.bearingRadians,
-		   radarVisible ? 1 : 0);
-
-		const auto &moves = playerBattleMoves();
-		const bool moveInputBusy =
-			battleSequenceActive || captureSequenceActive || gameFinished;
-		for (int slot = 0; slot < PLAYER_MOVE_SLOT_COUNT; ++slot)
+		telemetry.radar.visible = radarPokemon != nullptr && !gameFinished &&
+		                           (!researchReadyToSubmit() || alphaNestProgress.active) &&
+		                           !playerInsideCamp();
+		if (telemetry.radar.visible)
 		{
-			const BattleMove &move = moves[static_cast<std::size_t>(slot)];
-			const double remaining =
+			telemetry.radar.name = displayPokemonName(*radarPokemon);
+			telemetry.radar.distance = radarContact.distance;
+			telemetry.radar.bearingRadians = radarContact.bearingRadians;
+		}
+
+		FieldRadarCandidate campCandidate;
+		campCandidate.id = 0;
+		campCandidate.position = glm::vec3(
+			fieldCamp.center.x, 0.0f, fieldCamp.center.y);
+		const FieldRadarContact campContact = selectNearestFieldRadarContact(
+			mypos, mycam.yaw(), {campCandidate});
+		telemetry.camp.distance = horizontalDistanceToCamp(mypos, fieldCamp);
+		telemetry.camp.bearingRadians = campContact.bearingRadians;
+		telemetry.camp.inside = playerInsideCamp();
+		telemetry.camp.grounded = mycam.grounded();
+		telemetry.camp.readyToSubmit = researchReadyToSubmit();
+		telemetry.camp.submitted = researchSubmitted;
+		telemetry.camp.settlementScore = lastCampSettlementScore;
+		const bool showAlphaPoint = nearAlphaPoint && !alphaNestPrompt(alphaStatus).empty();
+		const std::string regionalPrompt = showAlphaPoint
+			? alphaNestPrompt(alphaStatus)
+			: (nearRegionalPoint
+			       ? regionalObservationPrompt(*regionalPoint, regionalStatus)
+			       : std::string());
+		telemetry.regional.visible =
+			(showAlphaPoint || nearRegionalPoint) && !regionalPrompt.empty();
+		if (telemetry.regional.visible)
+		{
+			const WorldInterestPointPlacement *hudPoint =
+				showAlphaPoint ? alphaPoint : regionalPoint;
+			FieldRadarCandidate regionalCandidate;
+			regionalCandidate.id = 0;
+			regionalCandidate.position = glm::vec3(
+				hudPoint->center.x, 0.0f, hudPoint->center.y);
+			const FieldRadarContact regionalContact = selectNearestFieldRadarContact(
+				mypos, mycam.yaw(), {regionalCandidate});
+			telemetry.regional.name = showAlphaPoint
+				                          ? "Alpha Charizard Nest"
+				                          : regionalResearchSiteName(regionalPoint->kind);
+			telemetry.regional.prompt = regionalPrompt;
+			telemetry.regional.distance =
+				showAlphaPoint ? alphaDistance : regionalDistance;
+			telemetry.regional.bearingRadians = regionalContact.bearingRadians;
+			telemetry.regional.ready = showAlphaPoint
+				                           ? alphaStatus == AlphaNestInteractionStatus::Available
+				                           : regionalStatus == RegionalObservationStatus::Available;
+			telemetry.regional.recorded = showAlphaPoint
+				                              ? alphaStatus == AlphaNestInteractionStatus::Resolved
+				                              : regionalStatus == RegionalObservationStatus::AlreadyRecorded;
+			telemetry.regional.alpha = showAlphaPoint;
+		}
+		telemetry.research.level = researchLevel;
+		telemetry.research.levelName = researchLevelName(researchLevel);
+		telemetry.research.luresRemaining = luresRemaining;
+		telemetry.research.lureActive = fieldLure.active;
+		telemetry.research.lureRemainingSeconds =
+			fieldLure.active ? fieldLure.remainingSeconds : 0.0f;
+
+		telemetry.moveInputBusy =
+			battleSequenceActive || captureInteractionActive() || gameFinished ||
+			playerInsideCamp() ||
+			(researchReadyToSubmit() && !alphaNestProgress.active);
+		const auto &moves = playerBattleMoves();
+		for (std::size_t index = 0; index < telemetry.moves.size(); ++index)
+		{
+			const int slot = static_cast<int>(index);
+			const BattleMove &move = moves[index];
+			HudMoveTelemetry &hudMove = telemetry.moves[index];
+			const BattleMoveGeometry geometry = battleMoveGeometryFor(move.id);
+			hudMove.name = move.name;
+			hudMove.shape = battleMoveShapeName(geometry.shape);
+			hudMove.type = static_cast<int>(move.type);
+			hudMove.power = move.power;
+			hudMove.range = geometry.range;
+			hudMove.remainingSeconds =
 				playerMoveLoadout.cooldownRemaining(slot, now);
-			const float fraction =
+			hudMove.cooldownFraction =
 				playerMoveLoadout.cooldownFraction(slot, now);
-			EM_ASM({
-				if (Module.onMoveSlot)
-				{
-					Module.onMoveSlot(
-						$0, UTF8ToString($1), $2, $3, $4, $5,
-						$6 !== 0, $7 !== 0);
-				}
-			}, slot, move.name, static_cast<int>(move.type), move.power,
-			   remaining, fraction,
-			   slot == playerMoveLoadout.selectedSlot() ? 1 : 0,
-			   moveInputBusy ? 1 : 0);
+			hudMove.selected = slot == playerMoveLoadout.selectedSlot();
 		}
 
 		const ResearchMissionSnapshot mission = makeResearchMissionSnapshot(
-			caughtCount, defeatedCount, researchProgress, CAPTURE_GOAL);
-		EM_ASM({
-			if (Module.onMissionProgress)
-			{
-				Module.onMissionProgress(
-					$0, $1, $2, $3, $4, $5, $6, $7, $8);
-			}
-		}, mission.objectives[0].current, mission.objectives[0].target,
-		   mission.objectives[1].current, mission.objectives[1].target,
-		   mission.objectives[2].current, mission.objectives[2].target,
-		   mission.objectives[3].current, mission.objectives[3].target,
-		   mission.completedObjectives());
-#endif
+			caughtCount, defeatedCount, researchProgress, RESEARCH_CAPTURE_GOAL);
+		for (std::size_t index = 0; index < telemetry.missionObjectives.size();
+		     ++index)
+		{
+			telemetry.missionObjectives[index].current =
+				mission.objectives[index].current;
+			telemetry.missionObjectives[index].target =
+				mission.objectives[index].target;
+		}
+		telemetry.completedMissionObjectives = mission.completedObjectives();
+		return telemetry;
 	}
 
-	void captureNearestPokemon()
+	void updateWebTelemetry(double now)
 	{
-		if (battleSequenceActive)
+#ifdef __EMSCRIPTEN__
+		if (now < nextTelemetryUpdate)
 		{
-			setStatus("Finish the battle exchange before throwing a Poke Ball.");
 			return;
 		}
-		if (captureSequenceActive)
+		nextTelemetryUpdate = now + 0.12;
+		const HudTelemetry telemetry = collectHudTelemetry(now);
+		std::string validationError;
+		if (!validateHudTelemetry(telemetry, &validationError))
 		{
-			setStatus("A capture attempt is already in progress.");
+			std::cerr << "HUD telemetry rejected: " << validationError << std::endl;
+			return;
+		}
+		const std::string payload = encodeHudTelemetryJson(telemetry);
+		EM_ASM({
+			if (Module.onHudTelemetry)
+			{
+				Module.onHudTelemetry(JSON.parse(UTF8ToString($0)));
+			}
+		}, payload.c_str());
+#endif
+		(void)now;
+	}
+
+	void beginCaptureAim()
+	{
+		if (playerInsideCamp())
+		{
+			setStatus("The field camp is a safe zone. Launch before aiming a Poke Ball.");
+			return;
+		}
+		if (researchReadyToSubmit() && !alphaNestProgress.active)
+		{
+			setStatus("Research quota complete. Return to camp and press F to submit.");
+			return;
+		}
+		if (battleSequenceActive)
+		{
+			setStatus("Finish the battle exchange before aiming a Poke Ball.");
+			return;
+		}
+		if (captureInteractionActive())
+		{
 			return;
 		}
 		if (gameFinished)
@@ -1933,59 +3396,329 @@ GLuint rockTex, umbreonTex;
 			setStatus("Out of Poke Balls. Press R twice to try again.");
 			return;
 		}
+		captureAiming = true;
+		captureAimStarted = gameplayTime();
+		setStatus("Aiming Poke Ball: turn to line up the arc, then release C.");
+	}
 
-		Pokemon *target = targetedPokemon();
-		if (!target)
+	void releaseCaptureThrow(bool persistProgress = true)
+	{
+		if (!captureAiming)
 		{
-			setStatus("No target. Face a Pokemon and move closer.");
 			return;
 		}
-		const std::string speciesName = pokemonSpeciesName(target->getSpecies());
-		const float captureRange = currentTarget.flying
-		                               ? FLYING_TARGETING_RANGE
-		                               : GROUND_TARGETING_RANGE;
-		if (currentTarget.distance > captureRange)
+		const double now = gameplayTime();
+		const float charge = currentCaptureCharge(now);
+		captureAiming = false;
+		if (battleSequenceActive || captureSequenceActive || gameFinished ||
+		    pokeballs <= 0)
 		{
-			std::ostringstream message;
-			message << speciesName << " locked at " << std::fixed << std::setprecision(1)
-			        << currentTarget.distance << "m. Move closer.";
-			setStatus(message.str());
+			setStatus("The throw was cancelled because the encounter state changed.");
 			return;
 		}
 
-		CaptureAttempt attempt;
-		attempt.species = target->getSpecies();
-		attempt.distance = currentTarget.distance;
-		attempt.maximumDistance = captureRange;
-		attempt.alignment = currentTarget.alignment;
-		attempt.healthRatio = target->getHealthRatio();
-		attempt.activity = captureActivityFor(*target);
-		pendingCaptureResult = resolveCaptureAttempt(attempt, captureRandom.nextUnit());
-		pendingCaptureTarget = target;
-		pendingCaptureSpecies = speciesName;
-		captureSequenceActive = true;
-		captureSequenceStarted = glfwGetTime();
-		lastCapturePhase = CapturePhase::Throwing;
-		lastCaptureShake = 0;
-		const glm::vec3 throwForward(-std::sin(mycam.yaw()), 0.0f,
-		                             -std::cos(mycam.yaw()));
-		captureThrowStart = mypos + glm::vec3(0.0f, 0.9f, 0.0f) +
-		                    throwForward * 0.55f;
-		captureHitPosition = pokemonWorldPosition(*target);
-		captureHitPosition.y += target->isFlying() ? 0.0f : 0.45f;
-		captureBallRestPosition = glm::vec3(
-			captureHitPosition.x,
-			terrainHeightMap.heightAt(captureHitPosition.x, captureHitPosition.z) + 0.18f,
-			captureHitPosition.z);
+		captureProjectileOrigin = captureLaunchPosition();
+		captureProjectile = launchCaptureProjectile(
+			captureProjectileOrigin, captureAimDirection(), charge,
+			captureProjectileConfig);
+		if (!captureProjectile.active)
+		{
+			setStatus("Unable to launch the Poke Ball from this aim direction.");
+			return;
+		}
 		--pokeballs;
 		currentTarget = PokemonTargetSelection();
 		std::ostringstream message;
-		message << "Poke Ball away at " << speciesName << " - "
-		        << static_cast<int>(std::round(pendingCaptureResult.probability * 100.0f))
-		        << "% capture chance.";
+		message << "Poke Ball away at "
+		        << static_cast<int>(std::round(charge * 100.0f))
+		        << "% charge. A real hit is required.";
 		setStatus(message.str());
 		emitGameCue("capture-throw");
-		saveGameProgress();
+		if (persistProgress)
+		{
+			saveGameProgress();
+		}
+	}
+
+	glm::vec3 captureCollisionCenter(const Pokemon &candidate) const
+	{
+		glm::vec3 center = pokemonWorldPosition(candidate);
+		if (!candidate.isFlying())
+		{
+			center.y += candidate.getSpecies() == PokemonSpecies::Umbreon
+			                ? 0.68f
+			                : 0.58f;
+		}
+		return center;
+	}
+
+	float captureCollisionRadius(const Pokemon &candidate) const
+	{
+		if (isAlphaPokemon(candidate))
+		{
+			return 1.75f;
+		}
+		if (candidate.isFlying())
+		{
+			return 1.25f;
+		}
+		switch (candidate.getSpecies())
+		{
+		case PokemonSpecies::Umbreon: return 0.72f;
+		case PokemonSpecies::Eevee: return 0.64f;
+		case PokemonSpecies::Bulbasaur: return 0.62f;
+		case PokemonSpecies::Charizard: return 1.25f;
+		}
+		return 0.65f;
+	}
+
+	void finishCaptureProjectileMiss(const glm::vec3 &position,
+	                               const std::string &obstacle, double now)
+	{
+		captureProjectile.active = false;
+		captureProjectile.position = position;
+		captureMissBallPosition = position;
+		captureMissBallVisibleUntil = now + 0.75;
+		captureEffectPosition = position;
+		captureEffectStarted = now;
+		captureEffectSucceeded = false;
+		nextWildEncounterTime = now + 0.45;
+		emitGameCue("capture-fail");
+		std::ostringstream message;
+		message << "The Poke Ball hit " << obstacle << " before a Pokemon. ";
+		if (pokeballs <= 0)
+		{
+			gameFinished = true;
+			message << "Out of Poke Balls; press R twice to retry.";
+		}
+		else
+		{
+			message << pokeballs << " Poke Balls left.";
+		}
+		setStatus(message.str());
+	}
+
+	void beginCaptureSequenceFromHit(Pokemon &target,
+	                                const CaptureSweepHit &hit, double now)
+	{
+		CaptureAttempt attempt;
+		attempt.species = target.getSpecies();
+		attempt.distance = glm::length(hit.position - captureProjectileOrigin);
+		attempt.maximumDistance = target.isFlying() ? FLYING_TARGETING_RANGE
+		                                           : GROUND_TARGETING_RANGE;
+		attempt.alignment = hit.quality;
+		attempt.healthRatio = target.getHealthRatio();
+		attempt.alertness = target.getAlertness();
+		attempt.backHit =
+			hasBackHitOpportunity(target, captureProjectileOrigin);
+		attempt.lured = fieldLureCaptureBonusApplies(target.getPos(), fieldLure);
+		attempt.activity = captureActivityFor(target);
+		attempt.difficultyMultiplier = isAlphaPokemon(target)
+		                                   ? ALPHA_CAPTURE_DIFFICULTY_MULTIPLIER
+		                                   : 1.0f;
+		pendingCaptureLureBonus = attempt.lured;
+		pendingCaptureResult =
+			resolveCaptureAttempt(attempt, captureRandom.nextUnit());
+		pendingCaptureTarget = &target;
+		pendingCaptureSpecies = displayPokemonName(target);
+		captureProjectile.active = false;
+		captureProjectile.position = hit.position;
+		captureSequenceActive = true;
+		captureSequenceStarted = now - captureThrowFlightPhaseDuration();
+		lastCapturePhase = CapturePhase::Throwing;
+		lastCaptureShake = 0;
+		captureThrowStart = captureProjectileOrigin;
+		captureHitPosition = hit.position;
+		captureBallRestPosition = glm::vec3(
+			hit.position.x,
+			terrainHeightMap.heightAt(hit.position.x, hit.position.z) +
+				captureProjectileConfig.radius,
+			hit.position.z);
+		currentTarget = PokemonTargetSelection();
+		nextWildEncounterTime =
+			now + captureSequenceDuration(pendingCaptureResult) + 0.45;
+		std::ostringstream message;
+		message << "Hit " << pendingCaptureSpecies << " with "
+		        << static_cast<int>(std::round(hit.quality * 100.0f))
+		        << "% throw precision · Alert "
+		        << static_cast<int>(std::round(attempt.alertness * 100.0f))
+		        << "%";
+		if (attempt.backHit)
+		{
+			message << " · Back hit";
+		}
+		if (attempt.lured)
+		{
+			message << " · Lure bonus";
+		}
+		message << " · "
+		        << static_cast<int>(std::round(
+		               pendingCaptureResult.probability * 100.0f))
+		        << "% capture chance.";
+		setStatus(message.str());
+	}
+
+	void updateCaptureProjectile(float deltaSeconds, double now)
+	{
+		if (!captureProjectile.active)
+		{
+			return;
+		}
+		const CaptureProjectileSegment segment = advanceCaptureProjectile(
+			captureProjectile, deltaSeconds, captureProjectileConfig);
+		CaptureSweepHit environmentHit = sweepCaptureSphereAgainstTerrain(
+			segment.start, segment.end, captureProjectileConfig.radius,
+			[this](float x, float z) { return terrainHeightMap.heightAt(x, z); });
+		std::string environmentName = "the ground";
+		for (const WorldRockPlacement &rock : ROCK_PLACEMENTS)
+		{
+			CaptureCollisionCylinder collider;
+			collider.center = rock.center;
+			collider.radius = std::max(rock.scale.x, rock.scale.z) * 1.18f;
+			collider.baseY =
+				terrainHeightMap.heightAt(rock.center.x, rock.center.y);
+			collider.height = rock.scale.y * 2.36f;
+			const CaptureSweepHit rockHit = sweepCaptureSphereAgainstCylinder(
+				segment.start, segment.end, captureProjectileConfig.radius,
+				collider);
+			if (rockHit.hit &&
+			    (!environmentHit.hit || rockHit.fraction < environmentHit.fraction))
+			{
+				environmentHit = rockHit;
+				environmentName = "a boulder";
+			}
+		}
+		for (const WorldLandmarkPlacement &landmark : LANDMARK_PLACEMENTS)
+		{
+			CaptureCollisionCylinder collider;
+			collider.center = landmark.center;
+			collider.radius = landmark.occlusionRadius;
+			collider.baseY = terrainHeightMap.heightAt(
+				landmark.center.x, landmark.center.y);
+			collider.height = landmark.height;
+			const CaptureSweepHit landmarkHit = sweepCaptureSphereAgainstCylinder(
+				segment.start, segment.end, captureProjectileConfig.radius, collider);
+			if (landmarkHit.hit &&
+			    (!environmentHit.hit || landmarkHit.fraction < environmentHit.fraction))
+			{
+				environmentHit = landmarkHit;
+				environmentName = landmark.kind == WorldLandmarkKind::MoonTree
+				                      ? "a moon tree"
+				                      : "a redrock spire";
+			}
+		}
+
+		Pokemon *hitPokemon = nullptr;
+		CaptureSweepHit pokemonHit;
+		auto considerPokemon = [&](Pokemon &candidate) {
+			if (candidate.getCaught() != 0 || candidate.isFainted() ||
+			    !candidate.isEcologicallyPresent())
+			{
+				return;
+			}
+			const CaptureSweepHit hit = sweepCaptureSphereAgainstSphere(
+				segment.start, segment.end, captureProjectileConfig.radius,
+				captureCollisionCenter(candidate), captureCollisionRadius(candidate));
+			if (hit.hit && (!pokemonHit.hit || hit.fraction < pokemonHit.fraction))
+			{
+				pokemonHit = hit;
+				hitPokemon = &candidate;
+			}
+		};
+		for (int index = 0; index < NUM_POKEMON; ++index)
+		{
+			considerPokemon(umbreons[index]);
+		}
+		for (int index = 0; index < FLYING_POKEMON; ++index)
+		{
+			considerPokemon(charizards[index]);
+		}
+		considerPokemon(alphaCharizard);
+
+		if (hitPokemon &&
+		    (!environmentHit.hit || pokemonHit.fraction < environmentHit.fraction))
+		{
+			beginCaptureSequenceFromHit(*hitPokemon, pokemonHit, now);
+			return;
+		}
+		if (environmentHit.hit)
+		{
+			finishCaptureProjectileMiss(
+				environmentHit.position, environmentName, now);
+			return;
+		}
+		if (!captureProjectile.active)
+		{
+			finishCaptureProjectileMiss(
+				captureProjectile.position, "the edge of the field", now);
+		}
+	}
+
+	std::vector<glm::vec3> capturePredictionPath(double now) const
+	{
+		std::vector<glm::vec3> points;
+		if (!captureAiming)
+		{
+			return points;
+		}
+		CaptureProjectileState prediction = launchCaptureProjectile(
+			captureLaunchPosition(), captureAimDirection(), currentCaptureCharge(now),
+			captureProjectileConfig);
+		if (!prediction.active)
+		{
+			return points;
+		}
+		points.push_back(prediction.position);
+		while (prediction.active && points.size() < 36)
+		{
+			const CaptureProjectileSegment segment = advanceCaptureProjectile(
+				prediction, 0.12f, captureProjectileConfig);
+			CaptureSweepHit firstHit = sweepCaptureSphereAgainstTerrain(
+				segment.start, segment.end, captureProjectileConfig.radius,
+				[this](float x, float z) {
+					return terrainHeightMap.heightAt(x, z);
+				});
+			for (const WorldRockPlacement &rock : ROCK_PLACEMENTS)
+			{
+				CaptureCollisionCylinder collider;
+				collider.center = rock.center;
+				collider.radius =
+					std::max(rock.scale.x, rock.scale.z) * 1.18f;
+				collider.baseY =
+					terrainHeightMap.heightAt(rock.center.x, rock.center.y);
+				collider.height = rock.scale.y * 2.36f;
+				const CaptureSweepHit rockHit = sweepCaptureSphereAgainstCylinder(
+					segment.start, segment.end, captureProjectileConfig.radius,
+					collider);
+				if (rockHit.hit &&
+				    (!firstHit.hit || rockHit.fraction < firstHit.fraction))
+				{
+					firstHit = rockHit;
+				}
+			}
+			for (const WorldLandmarkPlacement &landmark : LANDMARK_PLACEMENTS)
+			{
+				CaptureCollisionCylinder collider;
+				collider.center = landmark.center;
+				collider.radius = landmark.occlusionRadius;
+				collider.baseY = terrainHeightMap.heightAt(
+					landmark.center.x, landmark.center.y);
+				collider.height = landmark.height;
+				const CaptureSweepHit landmarkHit = sweepCaptureSphereAgainstCylinder(
+					segment.start, segment.end, captureProjectileConfig.radius, collider);
+				if (landmarkHit.hit &&
+				    (!firstHit.hit || landmarkHit.fraction < firstHit.fraction))
+				{
+					firstHit = landmarkHit;
+				}
+			}
+			points.push_back(firstHit.hit ? firstHit.position : segment.end);
+			if (firstHit.hit)
+			{
+				break;
+			}
+		}
+		return points;
 	}
 
 	glm::vec3 articulatedPartPivot(const Shape::PartInfo &part) const
@@ -2034,6 +3767,34 @@ GLuint rockTex, umbreonTex;
 			                   &modelMatrix[0][0]);
 			creature->drawPart(pokemon2, partIndex, useExternalTextures);
 		}
+	}
+
+	GLuint campTextureForPart(const std::string &partName) const
+	{
+		if (partName == "tent-fabric") return campTentTex;
+		if (partName == "tent-entrance") return campEntranceTex;
+		if (partName == "workbench") return campWorkbenchTex;
+		if (partName == "supply-crate") return campSupplyTex;
+		if (partName == "flagpole") return campPoleTex;
+		return campFlagTex;
+	}
+
+	bool landmarkPartMatches(WorldLandmarkKind kind,
+	                         const std::string &partName) const
+	{
+		const std::string prefix = kind == WorldLandmarkKind::MoonTree
+		                               ? "moon-tree-"
+		                               : "red-spire-";
+		return partName.compare(0, prefix.size(), prefix) == 0;
+	}
+
+	GLuint landmarkTextureForPart(const std::string &partName) const
+	{
+		if (partName == "moon-tree-trunk") return moonTreeTrunkTex;
+		if (partName == "moon-tree-canopy-low") return moonTreeCanopyLowTex;
+		if (partName == "moon-tree-canopy-high") return moonTreeCanopyHighTex;
+		if (partName == "red-spire-rock") return redSpireRockTex;
+		return redSpireCrystalTex;
 	}
 
 	GLuint bulbasaurTextureForPart(const std::string &partName) const
@@ -2242,7 +4003,11 @@ GLuint rockTex, umbreonTex;
 		}
 		if (key == GLFW_KEY_C && action == GLFW_PRESS)
 		{
-			captureRequested = true;
+			beginCaptureAim();
+		}
+		if (key == GLFW_KEY_C && action == GLFW_RELEASE)
+		{
+			releaseCaptureThrow();
 		}
 		if (key == GLFW_KEY_X && action == GLFW_PRESS)
 		{
@@ -2250,7 +4015,11 @@ GLuint rockTex, umbreonTex;
 		}
 		if (key == GLFW_KEY_F && action == GLFW_PRESS)
 		{
-			recoverAtCamp();
+			interactWithWorld();
+		}
+		if (key == GLFW_KEY_L && action == GLFW_PRESS)
+		{
+			deployLure();
 		}
 		if (key >= GLFW_KEY_1 && key <= GLFW_KEY_3 && action == GLFW_PRESS)
 		{
@@ -2258,7 +4027,7 @@ GLuint rockTex, umbreonTex;
 		}
 		if (key == GLFW_KEY_R && action == GLFW_PRESS)
 		{
-			const double now = glfwGetTime();
+			const double now = gameplayTime();
 			if (now <= resetConfirmationExpires)
 			{
 				resetRequested = true;
@@ -2384,6 +4153,8 @@ GLuint rockTex, umbreonTex;
 			// charizaPos[i].y = rand() / (float)RAND_MAX * 50 + 20;
 			// charizaPos[i].z = -rand() / (float)RAND_MAX * 100;
 		}
+		alphaCharizard = Pokemon(1, ALPHA_POKEMON_ID, 0xA17FA123u);
+		hideAlphaPokemon();
 
 		// generate the VAO
 		glGenVertexArrays(1, &VertexArrayID2);
@@ -2474,6 +4245,37 @@ GLuint rockTex, umbreonTex;
 		shape->loadMesh(resourceDirectory + "/sphere.obj");
 		shape->resize();
 		shape->init();
+
+		fieldCampMesh = make_shared<Shape>();
+		fieldCampMesh->loadMesh(resourceDirectory + "/camp/field_camp.obj");
+		if (fieldCampMesh->partCount() != 6)
+		{
+			std::cerr << "Unable to load the six-part field camp model." << std::endl;
+			exit(1);
+		}
+		fieldCampMesh->init();
+		campTentTex = createSolidTexture(50, 151, 139);
+		campEntranceTex = createSolidTexture(20, 54, 58);
+		campWorkbenchTex = createSolidTexture(126, 82, 43);
+		campSupplyTex = createSolidTexture(226, 166, 54);
+		campPoleTex = createSolidTexture(178, 195, 201);
+		campFlagTex = createSolidTexture(73, 184, 220);
+
+		fieldLandmarkMesh = make_shared<Shape>();
+		fieldLandmarkMesh->loadMesh(
+			resourceDirectory + "/world/field_landmarks.obj");
+		if (fieldLandmarkMesh->partCount() != 5)
+		{
+			std::cerr << "Unable to load the five-part field landmark model."
+			          << std::endl;
+			exit(1);
+		}
+		fieldLandmarkMesh->init();
+		moonTreeTrunkTex = createSolidTexture(61, 47, 68);
+		moonTreeCanopyLowTex = createSolidTexture(24, 70, 67);
+		moonTreeCanopyHighTex = createSolidTexture(50, 126, 111);
+		redSpireRockTex = createSolidTexture(167, 73, 46);
+		redSpireCrystalTex = createSolidTexture(255, 158, 61);
 
 		umbreon = make_shared<Shape>();
 		umbreon->loadMesh(resourceDirectory + "/pokemon/umbreon.obj");
@@ -2578,8 +4380,9 @@ GLuint rockTex, umbreonTex;
 			return terrainHeightMap.heightAt(worldX, worldZ);
 		});
 		std::vector<StaticCollisionCylinder> rockColliders;
-		rockColliders.reserve(ROCK_PLACEMENTS.size());
-		for (const RockPlacement &rock : ROCK_PLACEMENTS)
+		rockColliders.reserve(
+			ROCK_PLACEMENTS.size() + LANDMARK_PLACEMENTS.size() + 3);
+		for (const WorldRockPlacement &rock : ROCK_PLACEMENTS)
 		{
 			StaticCollisionCylinder collider;
 			collider.center = rock.center;
@@ -2588,7 +4391,30 @@ GLuint rockTex, umbreonTex;
 			collider.height = rock.scale.y * 2.36f;
 			rockColliders.push_back(collider);
 		}
+		for (const WorldLandmarkPlacement &landmark : LANDMARK_PLACEMENTS)
+		{
+			StaticCollisionCylinder collider;
+			collider.center = landmark.center;
+			collider.radius = landmark.collisionRadius;
+			collider.baseY = terrainHeightMap.heightAt(
+				landmark.center.x, landmark.center.y);
+			collider.height = landmark.height;
+			rockColliders.push_back(collider);
+		}
+		auto addCampCollider = [&](const glm::vec2 &center, float radius,
+		                           float height) {
+			StaticCollisionCylinder collider;
+			collider.center = center;
+			collider.radius = radius;
+			collider.baseY = terrainHeightMap.heightAt(center.x, center.y);
+			collider.height = height;
+			rockColliders.push_back(collider);
+		};
+		addCampCollider(fieldCamp.tentCenter, 2.35f, 3.0f);
+		addCampCollider(fieldCamp.workbenchCenter, 1.65f, 1.2f);
+		addCampCollider(fieldCamp.supplyCrateCenter, 1.05f, 1.5f);
 		mycam.setStaticObstacles(std::move(rockColliders));
+		resetPlayerAtFieldCamp();
 		refreshPokemonCollisionObstacles();
 
 		// texture 4
@@ -2762,6 +4588,15 @@ GLuint rockTex, umbreonTex;
 		heightshader->addUniform("M");
 		heightshader->addUniform("camoff");
 		heightshader->addUniform("campos");
+		heightshader->addUniform("meadowTerrainTint");
+		heightshader->addUniform("moonRegionCenter");
+		heightshader->addUniform("moonRegionRadii");
+		heightshader->addUniform("moonTerrainTint");
+		heightshader->addUniform("redRegionCenter");
+		heightshader->addUniform("redRegionRadii");
+		heightshader->addUniform("redTerrainTint");
+		heightshader->addUniform("trailSegments[0]");
+		heightshader->addUniform("trailHalfWidths[0]");
 		addSceneLightingUniforms(heightshader);
 		heightshader->addAttribute("vertPos");
 		heightshader->addAttribute("vertTex");
@@ -2867,71 +4702,33 @@ GLuint rockTex, umbreonTex;
 		battleEffectShader->addAttribute("vertTex");
 	}
 
-	/****DRAW
-	This is the most important function in your program - this is where you
-	will actually issue the commands to draw any geometry you have set up to
-	draw
-	********/
-	void render()
+	void simulateStep(const GameSessionStep &step)
 	{
-		double frametime = get_last_elapsed_time();
-
-		// Get current frame buffer size.
-		int width, height;
-		glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
-		if (width <= 0 || height <= 0)
+		const double actionNow = step.simulationTimeSeconds;
+		if (perfectCounterTarget && !perfectCounterWindowActive(actionNow))
 		{
-			return;
+			clearPerfectCounterWindow();
+			setStatus("Perfect counter window closed.");
 		}
-		float aspect = width / (float)height;
-		glViewport(0, 0, width, height);
-		const double actionNow = glfwGetTime();
-		sceneLighting = sampleWorldLighting(worldLightingCyclePhase(actionNow));
-
-		// Clear framebuffer.
-		glClearColor(sceneLighting.fogColor.r, sceneLighting.fogColor.g,
-		             sceneLighting.fogColor.b, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-		// Create the matrix stacks - please leave these alone for now
-
-		glm::mat4 V, M, P; // View, Model and Perspective matrix
-		V = glm::mat4(1);
-		M = glm::mat4(1);
-		// Apply orthographic projection....
-		P = glm::ortho(-1 * aspect, 1 * aspect, -1.0f, 1.0f, -2.0f, 100.0f);
-		if (width < height)
-		{
-			P = glm::ortho(-1.0f, 1.0f, -1.0f / aspect, 1.0f / aspect, -2.0f, 100.0f);
-		}
-		// ...but we overwrite it (optional) with a perspective projection.
-		P = glm::perspective((float)(3.14159 / 4.), (float)((float)width / (float)height), 0.1f, 1000.0f); // so much type casting... GLM metods are quite funny ones
-		if (resetRequested)
-		{
-			resetGame();
-		}
-		if (captureSequenceActive || battleSequenceActive || gameFinished)
+		if (captureSequenceActive || gameFinished)
 		{
 			mycam.w = mycam.a = mycam.s = mycam.d = 0;
 			mycam.q = mycam.e = mycam.space = 0;
 		}
-		glm::mat4 playerView = mycam.process(frametime);
+		const float movementScale = battleSequenceActive
+		                                ? battleMovementScale(
+		                                      pendingBattlePlan,
+		                                      currentBattleSample(actionNow))
+		                                : 1.0f;
+		mycam.process(step.deltaSeconds, movementScale);
 		const glm::vec3 playerVelocity = mycam.velocity();
 		const float playerSpeedRatio = glm::clamp(
 			glm::length(glm::vec2(playerVelocity.x, playerVelocity.z)) / 7.0f,
 			0.0f, 1.0f);
 		playerAnimationPhase = advancePokemonAnimationPhase(
-			playerAnimationPhase, static_cast<float>(frametime), true, false,
-			playerSpeedRatio);
-		PokemonAnimationInput playerAnimationInput;
-		playerAnimationInput.flying = true;
-		playerAnimationInput.speedRatio = playerSpeedRatio;
-		playerAnimationInput.verticalSpeedRatio =
-			glm::clamp(playerVelocity.y / 9.0f, -1.0f, 1.0f);
-		playerAnimationInput.turnRatio = mycam.turnRatio();
-		playerAnimationInput.phase = playerAnimationPhase;
-		PokemonAnimationPose playerPose =
-			samplePokemonAnimation(playerAnimationInput);
+			playerAnimationPhase, static_cast<float>(step.deltaSeconds), true,
+			false, playerSpeedRatio);
+
 		const PlayerMotionEvents &motionEvents = mycam.motionEvents();
 		if (motionEvents.dodgeStarted)
 		{
@@ -2963,31 +4760,117 @@ GLuint rockTex, umbreonTex;
 		{
 			setStatus("A wild Pokemon blocks the path.");
 		}
+
 		updateBattleSequence(actionNow);
 		updateCaptureSequence(actionNow);
-		updatePokemonAgents(frametime, actionNow);
+		if (updateFieldLure(fieldLure, static_cast<float>(step.deltaSeconds)) &&
+		    !battleSequenceActive && !captureInteractionActive() && !gameFinished)
+		{
+			setStatus("The field lure scent faded.");
+		}
+		updatePokemonAgents(step.deltaSeconds, actionNow);
+		updateCaptureProjectile(static_cast<float>(step.deltaSeconds), actionNow);
 		refreshTarget();
 		if (attackRequested)
 		{
 			attackTargetedPokemon();
 			attackRequested = false;
 		}
-		if (captureRequested)
+		updateWebTelemetry(actionNow);
+		if (actionNow >= nextWindowTitleUpdate)
 		{
-			captureNearestPokemon();
-			captureRequested = false;
+			nextWindowTitleUpdate = actionNow + 0.5;
+			updateWindowTitle();
 		}
-		updateWebTelemetry();
-		const double captureRenderNow = glfwGetTime();
+	}
+
+	/****DRAW
+	This is the most important function in your program - this is where you
+	will actually issue the commands to draw any geometry you have set up to
+	draw
+	********/
+	void render()
+	{
+		// Get current frame buffer size.
+		int width, height;
+		glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
+		if (width <= 0 || height <= 0)
+		{
+			return;
+		}
+		float aspect = width / (float)height;
+		glViewport(0, 0, width, height);
+		const double actionNow = gameplayTime();
+		sceneLighting = worldLightingAt(actionNow);
+
+		// Clear framebuffer.
+		glClearColor(sceneLighting.fogColor.r, sceneLighting.fogColor.g,
+		             sceneLighting.fogColor.b, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		// Create the matrix stacks - please leave these alone for now
+
+		glm::mat4 V, M, P; // View, Model and Perspective matrix
+		V = glm::mat4(1);
+		M = glm::mat4(1);
+		// Apply orthographic projection....
+		P = glm::ortho(-1 * aspect, 1 * aspect, -1.0f, 1.0f, -2.0f, 100.0f);
+		if (width < height)
+		{
+			P = glm::ortho(-1.0f, 1.0f, -1.0f / aspect, 1.0f / aspect, -2.0f, 100.0f);
+		}
+		// ...but we overwrite it (optional) with a perspective projection.
+		P = glm::perspective((float)(3.14159 / 4.), (float)((float)width / (float)height), 0.1f, 1000.0f); // so much type casting... GLM metods are quite funny ones
+		glm::mat4 playerView = mycam.viewMatrix();
+		const glm::vec3 playerVelocity = mycam.velocity();
+		const float playerSpeedRatio = glm::clamp(
+			glm::length(glm::vec2(playerVelocity.x, playerVelocity.z)) / 7.0f,
+			0.0f, 1.0f);
+		PokemonAnimationInput playerAnimationInput;
+		playerAnimationInput.flying = true;
+		playerAnimationInput.speedRatio = playerSpeedRatio;
+		playerAnimationInput.verticalSpeedRatio =
+			glm::clamp(playerVelocity.y / 9.0f, -1.0f, 1.0f);
+		playerAnimationInput.turnRatio = mycam.turnRatio();
+		playerAnimationInput.phase = playerAnimationPhase;
+		PokemonAnimationPose playerPose =
+			samplePokemonAnimation(playerAnimationInput);
+		const double captureRenderNow = actionNow;
 		const CaptureSequenceSample captureVisualSample =
 			currentCaptureSample(captureRenderNow);
+		const bool missedCaptureBallVisible =
+			captureRenderNow < captureMissBallVisibleUntil;
+		CaptureBallVisualPose visibleCaptureBallPose;
+		bool captureBallVisible = false;
+		if (captureProjectile.active)
+		{
+			captureBallVisible = true;
+			visibleCaptureBallPose.position = captureProjectile.position;
+			visibleCaptureBallPose.pitch =
+				captureProjectile.elapsedSeconds * 12.5663706f;
+			visibleCaptureBallPose.roll =
+				captureProjectile.elapsedSeconds * 7.5398224f;
+		}
+		else if (missedCaptureBallVisible)
+		{
+			captureBallVisible = true;
+			visibleCaptureBallPose.position = captureMissBallPosition;
+			visibleCaptureBallPose.roll = 1.5707963f;
+		}
+		else if (captureSequenceActive && captureVisualSample.ballVisible)
+		{
+			captureBallVisible = true;
+			visibleCaptureBallPose = captureBallVisualPose(captureVisualSample);
+		}
 		const BattleSequenceSample battleVisualSample =
 			currentBattleSample(captureRenderNow);
 		if (battleSequenceActive)
 		{
 			applyPlayerBattlePose(playerPose, battleVisualSample,
 			                      pendingPlayerMove,
-			                      playerEvadedCurrentCounter);
+			                      playerEvadedCurrentCounter ||
+			                          (wildMoveReleased &&
+			                           !pendingWildMoveVolume.hitTarget));
 		}
 		applyPlayerDodgePose(playerPose, mycam.isDodging(),
 		                     mycam.isInvulnerable());
@@ -3037,6 +4920,43 @@ GLuint rockTex, umbreonTex;
 		offset.z = (int)offset.z;
 		glUniform3fv(heightshader->getUniform("camoff"), 1, &offset[0]);
 		glUniform3fv(heightshader->getUniform("campos"), 1, &mycam.pos[0]);
+		const WorldRegionDescriptor &meadowRegion = worldRegionDescriptor(
+			WorldRegionKind::WindwhisperMeadow);
+		const WorldRegionDescriptor &moonRegion = worldRegionDescriptor(
+			WorldRegionKind::MoonshadowEdge);
+		const WorldRegionDescriptor &redRegion = worldRegionDescriptor(
+			WorldRegionKind::RedrockHighlands);
+		const glm::vec2 moonRadii(moonRegion.innerRadius, moonRegion.outerRadius);
+		const glm::vec2 redRadii(redRegion.innerRadius, redRegion.outerRadius);
+		glUniform3fv(heightshader->getUniform("meadowTerrainTint"), 1,
+		             &meadowRegion.terrainTint[0]);
+		glUniform2fv(heightshader->getUniform("moonRegionCenter"), 1,
+		             &moonRegion.center[0]);
+		glUniform2fv(heightshader->getUniform("moonRegionRadii"), 1,
+		             &moonRadii[0]);
+		glUniform3fv(heightshader->getUniform("moonTerrainTint"), 1,
+		             &moonRegion.terrainTint[0]);
+		glUniform2fv(heightshader->getUniform("redRegionCenter"), 1,
+		             &redRegion.center[0]);
+		glUniform2fv(heightshader->getUniform("redRegionRadii"), 1,
+		             &redRadii[0]);
+		glUniform3fv(heightshader->getUniform("redTerrainTint"), 1,
+		             &redRegion.terrainTint[0]);
+		std::array<glm::vec4, 8> trailUniforms;
+		std::array<float, 8> trailWidths;
+		for (std::size_t index = 0; index < TRAIL_SEGMENTS.size(); ++index)
+		{
+			const WorldTrailSegment &segment = TRAIL_SEGMENTS[index];
+			trailUniforms[index] = glm::vec4(
+				segment.start.x, segment.start.y, segment.end.x, segment.end.y);
+			trailWidths[index] = segment.halfWidth;
+		}
+		glUniform4fv(heightshader->getUniform("trailSegments[0]"),
+		             static_cast<GLsizei>(trailUniforms.size()),
+		             &trailUniforms[0][0]);
+		glUniform1fv(heightshader->getUniform("trailHalfWidths[0]"),
+		             static_cast<GLsizei>(trailWidths.size()),
+		             trailWidths.data());
 		glBindVertexArray(VertexArrayID);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IndexBufferIDBox);
 		glActiveTexture(GL_TEXTURE0);
@@ -3081,6 +5001,27 @@ GLuint rockTex, umbreonTex;
 		                          const glm::vec3 &ringColor, float opacity) {
 			drawPlanarEffect(position, glm::vec2(diameter), ringColor, opacity, 0.0f);
 		};
+		auto drawBillboardEffect = [&](const glm::vec3 &position, float diameter,
+		                               const glm::vec3 &effectColor,
+		                               float opacity) {
+			const glm::mat4 translation =
+				glm::translate(glm::mat4(1.0f), position);
+			const glm::mat4 faceCamera = glm::mat4(
+				glm::transpose(glm::mat3(playerView)));
+			const glm::mat4 scale = glm::scale(
+				glm::mat4(1.0f), glm::vec3(diameter, diameter, 1.0f));
+			const glm::mat4 centerQuad = glm::translate(
+				glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -0.5f));
+			const glm::mat4 model =
+				translation * faceCamera * scale * centerQuad;
+			glUniformMatrix4fv(targetshader->getUniform("M"), 1, GL_FALSE,
+			                   &model[0][0]);
+			glUniform3fv(targetshader->getUniform("ringColor"), 1,
+			             &effectColor[0]);
+			glUniform1f(targetshader->getUniform("opacity"), opacity);
+			glUniform1f(targetshader->getUniform("fillAmount"), 1.0f);
+			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, (void *)0);
+		};
 		auto drawGroundShadow = [&](const glm::vec3 &position,
 		                           const glm::vec2 &dimensions, float opacity) {
 			drawPlanarEffect(position, dimensions,
@@ -3117,10 +5058,114 @@ GLuint rockTex, umbreonTex;
 				glm::vec3(mypos.x, playerGroundHeight + 0.05f, mypos.z),
 				1.65f * pulse, glm::vec3(0.56f, 0.94f, 1.0f), 0.42f);
 		}
+		const float campGroundHeight = terrainHeightMap.heightAt(
+			fieldCamp.center.x, fieldCamp.center.y);
+		const glm::vec3 campRingColor = researchReadyToSubmit()
+			? glm::vec3(1.0f, 0.78f, 0.20f)
+			: (researchSubmitted ? glm::vec3(0.35f, 0.78f, 1.0f)
+			                     : glm::vec3(0.28f, 0.92f, 0.62f));
+		drawTargetRing(
+			glm::vec3(fieldCamp.center.x, campGroundHeight + 0.055f,
+			          fieldCamp.center.y),
+			fieldCamp.landingRadius * 2.0f, campRingColor,
+			playerInsideCamp() ? 0.72f : 0.46f);
+		for (const WorldLandmarkPlacement &landmark : LANDMARK_PLACEMENTS)
+		{
+			const float groundHeight = terrainHeightMap.heightAt(
+				landmark.center.x, landmark.center.y);
+			const glm::vec2 shadowDimensions =
+				landmark.kind == WorldLandmarkKind::MoonTree
+				    ? glm::vec2(landmark.occlusionRadius * 2.25f,
+				                landmark.occlusionRadius * 1.35f)
+				    : glm::vec2(landmark.collisionRadius * 2.1f,
+				                landmark.collisionRadius * 1.35f);
+			drawGroundShadow(
+				glm::vec3(landmark.center.x, groundHeight + 0.033f,
+				          landmark.center.y),
+				shadowDimensions,
+				landmark.kind == WorldLandmarkKind::MoonTree ? 0.20f : 0.17f);
+		}
+		for (std::size_t index = 0; index < INTEREST_POINT_PLACEMENTS.size(); ++index)
+		{
+			const WorldInterestPointPlacement &point =
+				INTEREST_POINT_PLACEMENTS[index];
+			const float groundHeight = terrainHeightMap.heightAt(
+				point.center.x, point.center.y);
+			const bool alphaMarker = point.kind == WorldInterestPointKind::AlphaNest;
+			const bool recorded = alphaMarker
+			                          ? alphaNestProgress.resolved
+			                          : regionalResearchRecorded(point.kind);
+			const bool alphaActive = alphaMarker && alphaNestProgress.active;
+			const bool alphaUnlocked = alphaMarker && alphaNestPrerequisitesMet();
+			const glm::vec3 markerColor = recorded
+				? glm::vec3(0.48f, 0.78f, 1.0f)
+				: (alphaActive
+				       ? glm::vec3(1.0f, 0.16f, 0.08f)
+				       : (alphaMarker
+				              ? (alphaUnlocked ? glm::vec3(1.0f, 0.42f, 0.10f)
+				                               : glm::vec3(0.38f, 0.22f, 0.48f))
+				              : (point.kind == WorldInterestPointKind::Trailhead
+				                     ? glm::vec3(0.22f, 0.88f, 1.0f)
+				                     : (point.kind == WorldInterestPointKind::MoonshadowTracks
+				                            ? glm::vec3(0.30f, 0.92f, 0.72f)
+					                            : glm::vec3(1.0f, 0.62f, 0.20f)))));
+			const float pulse = recorded ? 1.0f : 1.0f +
+			                    std::sin(indicatorTime * (alphaActive ? 5.2f : 2.8f) +
+			                             static_cast<float>(index) * 1.7f) *
+			                        (alphaActive ? 0.12f : 0.06f);
+			drawPlanarEffect(
+				glm::vec3(point.center.x, groundHeight + 0.041f, point.center.y),
+				glm::vec2(point.visualRadius * 1.55f), markerColor,
+				recorded ? 0.10f : 0.16f, 1.0f);
+			drawTargetRing(
+				glm::vec3(point.center.x, groundHeight + 0.047f, point.center.y),
+				point.visualRadius * (recorded ? 1.72f : 2.0f) * pulse,
+				markerColor, recorded ? 0.42f : 0.64f);
+			drawBillboardEffect(
+				glm::vec3(point.center.x,
+				          groundHeight + (recorded ? 0.68f : 1.25f), point.center.y),
+				(recorded ? 0.28f : 0.38f) * pulse, markerColor,
+				recorded ? 0.48f : 0.72f);
+			if (recorded)
+			{
+				drawTargetRing(
+					glm::vec3(point.center.x, groundHeight + 0.052f, point.center.y),
+					point.visualRadius * 1.15f, glm::vec3(0.78f, 0.94f, 1.0f),
+					0.52f);
+			}
+			else if (alphaMarker)
+			{
+				drawTargetRing(
+					glm::vec3(point.center.x, groundHeight + 0.052f, point.center.y),
+					point.visualRadius * (alphaActive ? 0.92f : 1.18f) * pulse,
+					alphaActive ? glm::vec3(1.0f, 0.72f, 0.18f)
+					            : glm::vec3(0.86f, 0.46f, 1.0f),
+					alphaActive ? 0.84f : 0.48f);
+			}
+		}
+		if (fieldLure.active)
+		{
+			const float lureProgress = glm::clamp(
+				fieldLure.remainingSeconds / FIELD_LURE_DURATION_SECONDS,
+				0.0f, 1.0f);
+			const float lurePulse = 0.5f +
+				0.5f * std::sin(indicatorTime * 6.0f);
+			const glm::vec3 lurePosition(
+				fieldLure.position.x,
+				terrainHeightMap.heightAt(fieldLure.position.x,
+				                          fieldLure.position.z) + 0.06f,
+				fieldLure.position.z);
+			drawTargetRing(lurePosition, 2.6f + lurePulse * 0.45f,
+			               glm::vec3(1.0f, 0.34f, 0.76f),
+			               0.34f + lureProgress * 0.22f);
+			drawTargetRing(lurePosition, 0.62f + lurePulse * 0.18f,
+			               glm::vec3(1.0f, 0.82f, 0.22f), 0.78f);
+		}
 
 		for (int i = 0; i < NUM_POKEMON; ++i)
 		{
 			if (umbreons[i].getCaught() == 1 || umbreons[i].isFainted() ||
+			    !umbreons[i].isEcologicallyPresent() ||
 			    (isPendingCaptureTarget(umbreons[i]) &&
 			     !captureVisualSample.pokemonVisible))
 			{
@@ -3162,15 +5207,19 @@ GLuint rockTex, umbreonTex;
 			}
 		}
 
-		for (int i = 0; i < FLYING_POKEMON; ++i)
+		for (int i = 0; i <= FLYING_POKEMON; ++i)
 		{
-			if (charizards[i].getCaught() == 1 || charizards[i].isFainted() ||
-			    (isPendingCaptureTarget(charizards[i]) &&
+			Pokemon &flyingPokemon = i == ALPHA_TARGET_INDEX
+			                             ? alphaCharizard
+			                             : charizards[i];
+			if (flyingPokemon.getCaught() == 1 || flyingPokemon.isFainted() ||
+			    !flyingPokemon.isEcologicallyPresent() ||
+			    (isPendingCaptureTarget(flyingPokemon) &&
 			     !captureVisualSample.pokemonVisible))
 			{
 				continue;
 			}
-			const glm::vec3 position = charizards[i].getPos();
+			const glm::vec3 position = flyingPokemon.getPos();
 			if (glm::length(glm::vec2(mypos.x - position.x,
 			                          mypos.z - position.z)) > 100.0f)
 			{
@@ -3182,18 +5231,69 @@ GLuint rockTex, umbreonTex;
 			const float growth = glm::clamp(1.0f + altitude * 0.045f, 1.0f, 2.5f);
 			const float opacity =
 				glm::clamp(0.24f - altitude * 0.006f, 0.055f, 0.20f);
+			const float alphaScale = isAlphaPokemon(flyingPokemon) ? 1.45f : 1.0f;
 			drawGroundShadow(glm::vec3(position.x, groundHeight + 0.038f, position.z),
-			                 glm::vec2(2.45f, 1.42f) * growth, opacity);
+			                 glm::vec2(2.45f, 1.42f) * growth * alphaScale,
+			                 opacity);
 		}
 
 		Pokemon *lockedPokemon = targetedPokemon();
-		if (lockedPokemon && lockedPokemon->getCaught() == 0)
+		if (lockedPokemon && lockedPokemon->getCaught() == 0 &&
+		    lockedPokemon->isEcologicallyPresent())
 		{
 			glm::vec3 targetPosition = pokemonWorldPosition(*lockedPokemon);
 			targetPosition.y += currentTarget.flying ? -0.65f : 0.08f;
-			const float targetDiameter = currentTarget.flying ? 3.2f : 2.35f;
+			const float aimPulse = captureAiming
+			                           ? 1.0f + std::sin(indicatorTime * 7.0f) * 0.08f
+			                           : 1.0f;
+			const float targetDiameter =
+				(isAlphaPokemon(*lockedPokemon)
+				     ? 4.4f
+				     : (currentTarget.flying ? 3.2f : 2.35f)) *
+				aimPulse;
 			drawTargetRing(targetPosition, targetDiameter,
-			               glm::vec3(0.18f, 0.82f, 1.0f), 0.88f);
+			               captureAiming ? glm::vec3(1.0f, 0.68f, 0.14f)
+			                              : glm::vec3(0.18f, 0.82f, 1.0f),
+			               captureAiming ? 0.96f : 0.88f);
+		}
+		if (captureAiming)
+		{
+			const std::vector<glm::vec3> prediction =
+				capturePredictionPath(captureRenderNow);
+			const float charge = currentCaptureCharge(captureRenderNow);
+			for (std::size_t index = 1; index < prediction.size(); ++index)
+			{
+				const float progress = static_cast<float>(index) /
+				                       static_cast<float>(prediction.size());
+				const glm::vec3 color = glm::mix(
+					glm::vec3(0.24f, 0.84f, 1.0f),
+					glm::vec3(1.0f, 0.60f, 0.12f), progress);
+				const glm::vec3 groundProjection(
+					prediction[index].x,
+					terrainHeightMap.heightAt(
+						prediction[index].x, prediction[index].z) + 0.045f,
+					prediction[index].z);
+				drawTargetRing(
+					groundProjection, 0.18f + charge * 0.10f, color,
+					0.42f - progress * 0.12f);
+				if ((index % 2u) == 1u || index + 1u == prediction.size())
+				{
+					drawBillboardEffect(
+						prediction[index], 0.30f + charge * 0.18f, color,
+						0.94f - progress * 0.18f);
+				}
+			}
+			if (prediction.size() > 1)
+			{
+				const glm::vec3 &landing = prediction.back();
+				drawTargetRing(
+					glm::vec3(
+						landing.x,
+						terrainHeightMap.heightAt(landing.x, landing.z) + 0.055f,
+						landing.z),
+					0.82f + charge * 0.34f, glm::vec3(1.0f, 0.58f, 0.10f),
+					0.86f);
+			}
 		}
 		if (battleSequenceActive)
 		{
@@ -3203,10 +5303,26 @@ GLuint rockTex, umbreonTex;
 				battleEffectPalette(pendingWildMove.type);
 			const float playerVisualScale =
 				battleMoveVisualScale(pendingPlayerMove.id);
+			const BattleMoveGeometry wildGeometry =
+				battleMoveGeometryFor(pendingWildMove.id);
 			glm::vec3 playerRingPosition(
 				mypos.x, terrainHeightMap.heightAt(mypos.x, mypos.z) + 0.055f,
 				mypos.z);
 			glm::vec3 targetRingPosition = battleTargetPosition;
+			glm::vec3 playerImpactRingPosition =
+				pendingPlayerMoveVolume.impactPosition;
+			playerImpactRingPosition.y = terrainHeightMap.heightAt(
+				playerImpactRingPosition.x, playerImpactRingPosition.z) + 0.055f;
+			glm::vec3 wildImpactRingPosition = pendingWildMoveVolume.hitTarget
+			                                      ? battlePlayerHitPosition
+			                                      : pendingWildMoveVolume.impactPosition;
+			if (mycam.grounded() ||
+			    pendingWildMoveVolume.impact == BattleMoveImpactKind::Terrain ||
+			    pendingWildMoveVolume.impact == BattleMoveImpactKind::Obstacle)
+			{
+				wildImpactRingPosition.y = terrainHeightMap.heightAt(
+					wildImpactRingPosition.x, wildImpactRingPosition.z) + 0.055f;
+			}
 			if (pendingBattleTarget && pendingBattleTarget->isFlying())
 			{
 				targetRingPosition.y -= 0.72f;
@@ -3228,7 +5344,7 @@ GLuint rockTex, umbreonTex;
 			else if (battleVisualSample.phase == BattlePhase::TargetImpact)
 			{
 				const float progress = battleVisualSample.phaseProgress;
-				drawTargetRing(targetRingPosition,
+				drawTargetRing(playerImpactRingPosition,
 				               (0.86f + progress * 2.65f) * playerVisualScale,
 				               playerPalette.effectColor,
 				               (1.0f - progress) * 0.86f);
@@ -3240,25 +5356,40 @@ GLuint rockTex, umbreonTex;
 				drawTargetRing(targetRingPosition, 0.82f + progress * 0.74f,
 				               wildPalette.effectColor, 0.25f + progress * 0.38f);
 			}
+			else if (battleVisualSample.phase == BattlePhase::WildProjectile)
+			{
+				const float pulse =
+					1.0f + std::sin(indicatorTime * 14.0f) * 0.08f;
+				drawTargetRing(targetRingPosition, 1.28f,
+				               wildPalette.coreColor, 0.48f);
+				drawTargetRing(wildImpactRingPosition,
+				               wildGeometry.dangerRadius * 2.0f * pulse,
+				               wildPalette.effectColor, 0.82f);
+			}
 			else if (battleVisualSample.phase == BattlePhase::PlayerImpact)
 			{
 				const float progress = battleVisualSample.phaseProgress;
-				drawTargetRing(playerRingPosition, 0.92f + progress * 2.90f,
+				drawTargetRing(wildImpactRingPosition,
+				               wildGeometry.dangerRadius * 2.0f + progress * 2.4f,
 				               wildPalette.effectColor,
-				               (1.0f - progress) * 0.82f);
+				               (1.0f - progress) *
+				                   (pendingWildMoveVolume.hitTarget ? 0.82f : 0.38f));
 			}
 		}
-		if (captureSequenceActive && captureVisualSample.ballVisible)
+		if (captureBallVisible)
 		{
-			const CaptureBallVisualPose ballPose =
-				captureBallVisualPose(captureVisualSample);
-			glm::vec3 ballIndicatorPosition = ballPose.position;
+			glm::vec3 ballIndicatorPosition = visibleCaptureBallPose.position;
 			glm::vec3 ballIndicatorColor(1.0f, 0.68f, 0.16f);
 			float ballIndicatorDiameter = 0.58f;
-			if (captureVisualSample.phase == CapturePhase::Throwing)
+			if (captureProjectile.active)
 			{
 				ballIndicatorColor = glm::vec3(1.0f, 0.34f, 0.22f);
 				ballIndicatorDiameter = 0.46f;
+			}
+			else if (missedCaptureBallVisible)
+			{
+				ballIndicatorColor = glm::vec3(1.0f, 0.24f, 0.12f);
+				ballIndicatorDiameter = 0.50f;
 			}
 			else if (captureVisualSample.phase == CapturePhase::Absorbing)
 			{
@@ -3292,10 +5423,9 @@ GLuint rockTex, umbreonTex;
 		glDepthMask(GL_TRUE);
 		targetshader->unbind();
 
-		if (captureSequenceActive && captureVisualSample.ballVisible)
+		if (captureBallVisible)
 		{
-			const CaptureBallVisualPose ballPose =
-				captureBallVisualPose(captureVisualSample);
+			const CaptureBallVisualPose &ballPose = visibleCaptureBallPose;
 			const glm::vec3 toPlayer = mypos - ballPose.position;
 			const float faceYaw = std::atan2(toPlayer.x, toPlayer.z);
 			const glm::mat4 ballTranslation =
@@ -3379,10 +5509,48 @@ GLuint rockTex, umbreonTex;
 		applySceneLighting(pokemon2, V);
 
 		glActiveTexture(GL_TEXTURE0);
+		glUniform1f(pokemon2->getUniform("surfaceDeform"), 0.0f);
+		applyCharizardAnimation(pokemon2, PokemonAnimationPose(), false);
+		M = glm::translate(
+			glm::mat4(1.0f),
+			glm::vec3(fieldCamp.center.x, campGroundHeight, fieldCamp.center.y));
+		glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE, &M[0][0]);
+		for (int partIndex = 0; partIndex < fieldCampMesh->partCount(); ++partIndex)
+		{
+			const Shape::PartInfo &part = fieldCampMesh->partInfo(partIndex);
+			glBindTexture(GL_TEXTURE_2D, campTextureForPart(part.name));
+			fieldCampMesh->drawPart(pokemon2, partIndex, true);
+		}
+
+		for (const WorldLandmarkPlacement &landmark : LANDMARK_PLACEMENTS)
+		{
+			const float groundHeight = terrainHeightMap.heightAt(
+				landmark.center.x, landmark.center.y);
+			T = glm::translate(
+				glm::mat4(1.0f),
+				glm::vec3(landmark.center.x, groundHeight, landmark.center.y));
+			R = glm::rotate(glm::mat4(1.0f), landmark.yaw,
+			                glm::vec3(0.0f, 1.0f, 0.0f));
+			S = glm::scale(glm::mat4(1.0f), glm::vec3(landmark.scale));
+			M = T * R * S;
+			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE, &M[0][0]);
+			for (int partIndex = 0; partIndex < fieldLandmarkMesh->partCount();
+			     ++partIndex)
+			{
+				const Shape::PartInfo &part =
+					fieldLandmarkMesh->partInfo(partIndex);
+				if (!landmarkPartMatches(landmark.kind, part.name))
+				{
+					continue;
+				}
+				glBindTexture(GL_TEXTURE_2D, landmarkTextureForPart(part.name));
+				fieldLandmarkMesh->drawPart(pokemon2, partIndex, true);
+			}
+		}
+
 		glBindTexture(GL_TEXTURE_2D, rockTex);
 		glUniform1f(pokemon2->getUniform("surfaceDeform"), 0.18f);
-		applyCharizardAnimation(pokemon2, PokemonAnimationPose(), false);
-		for (const RockPlacement &rock : ROCK_PLACEMENTS)
+		for (const WorldRockPlacement &rock : ROCK_PLACEMENTS)
 		{
 			const float groundHeight = terrainHeightMap.heightAt(rock.center.x, rock.center.y);
 			T = glm::translate(glm::mat4(1.0f),
@@ -3400,6 +5568,7 @@ GLuint rockTex, umbreonTex;
 		{
 			// if flag been caught, then don't draw, if too far, don't draw
 			if (umbreons[i].getCaught() == 1 || umbreons[i].isFainted() ||
+			    !umbreons[i].isEcologicallyPresent() ||
 			    (isPendingCaptureTarget(umbreons[i]) &&
 			     !captureVisualSample.pokemonVisible))
 			{
@@ -3420,7 +5589,9 @@ GLuint rockTex, umbreonTex;
 			animationInput.speedRatio = speedRatio;
 			animationInput.phase = umbreons[i].getMotionPhase();
 			PokemonAnimationPose pose = samplePokemonAnimation(animationInput);
-			if (isPendingBattleTarget(umbreons[i]))
+			if (isPendingBattleTarget(umbreons[i]) &&
+			    (battleVisualSample.phase != BattlePhase::TargetImpact ||
+			     pendingPlayerMoveVolume.hitTarget))
 			{
 				applyWildBattlePose(pose, battleVisualSample, pendingWildMove);
 			}
@@ -3434,8 +5605,11 @@ GLuint rockTex, umbreonTex;
 			vec3 wildPosition = umbreons[i].getPos();
 			if (isPendingBattleTarget(umbreons[i]))
 			{
+				const glm::vec3 lungeTarget = wildMoveReleased
+				                                  ? pendingWildMoveVolume.impactPosition
+				                                  : battlePlayerHitPosition;
 				wildPosition += wildBattleLungeOffset(
-					wildPosition, battlePlayerHitPosition, battleVisualSample,
+					wildPosition, lungeTarget, battleVisualSample,
 					pendingWildMove);
 			}
 			wildPosition.y = terrainHeightMap.heightAt(wildPosition.x, wildPosition.z) +
@@ -3465,48 +5639,58 @@ GLuint rockTex, umbreonTex;
 			}
 		}
 
-		S = glm::scale(glm::mat4(1.0f), glm::vec3(1.6f, 1.6f, 1.6f));
 		// charizard
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, fireTex);
-		for (int i = 0; i < FLYING_POKEMON; i++)
+		for (int i = 0; i <= FLYING_POKEMON; i++)
 		{
-			if (charizards[i].getCaught() == 1 || charizards[i].isFainted() ||
-			    (isPendingCaptureTarget(charizards[i]) &&
+			Pokemon &flyingPokemon = i == ALPHA_TARGET_INDEX
+			                             ? alphaCharizard
+			                             : charizards[i];
+			if (flyingPokemon.getCaught() == 1 || flyingPokemon.isFainted() ||
+			    !flyingPokemon.isEcologicallyPresent() ||
+			    (isPendingCaptureTarget(flyingPokemon) &&
 			     !captureVisualSample.pokemonVisible))
 			{
 				continue;
 			}
-			float distance = glm::length(glm::vec2(mypos.x - charizards[i].getPos().x,
-			                                      mypos.z - charizards[i].getPos().z));
+			float distance = glm::length(glm::vec2(
+				mypos.x - flyingPokemon.getPos().x,
+				mypos.z - flyingPokemon.getPos().z));
 			if (distance > 100)
 			{
 				continue;
 			}
-			const float flightSpeedRatio = charizards[i].getSpeedRatio();
+			const float flightSpeedRatio = flyingPokemon.getSpeedRatio();
 			PokemonAnimationInput flightAnimationInput;
 			flightAnimationInput.flying = true;
 			flightAnimationInput.fleeing =
-				charizards[i].getBehaviorState() == PokemonBehaviorState::Flee;
+				flyingPokemon.getBehaviorState() == PokemonBehaviorState::Flee;
 			flightAnimationInput.speedRatio = flightSpeedRatio;
 			flightAnimationInput.verticalSpeedRatio =
-				glm::clamp(charizards[i].getVelocity().y / 4.8f, -1.0f, 1.0f);
-			flightAnimationInput.phase = charizards[i].getMotionPhase();
+				glm::clamp(flyingPokemon.getVelocity().y / 4.8f, -1.0f, 1.0f);
+			flightAnimationInput.phase = flyingPokemon.getMotionPhase();
 			PokemonAnimationPose flightPose =
 				samplePokemonAnimation(flightAnimationInput);
-			if (isPendingBattleTarget(charizards[i]))
+			if (isPendingBattleTarget(flyingPokemon) &&
+			    (battleVisualSample.phase != BattlePhase::TargetImpact ||
+			     pendingPlayerMoveVolume.hitTarget))
 			{
 				applyWildBattlePose(
 					flightPose, battleVisualSample, pendingWildMove);
 			}
-			vec3 flightPosition = charizards[i].getPos();
+			vec3 flightPosition = flyingPokemon.getPos();
 			flightPosition.y += flightPose.bodyBob;
 			T = glm::translate(glm::mat4(1.0f), flightPosition);
-			R = glm::rotate(glm::mat4(1.0f), charizards[i].getHeading(), glm::vec3(0.0f, 1.0f, 0.0f));
+			R = glm::rotate(glm::mat4(1.0f), flyingPokemon.getHeading(),
+			                glm::vec3(0.0f, 1.0f, 0.0f));
 			mat4 FlightPitch = glm::rotate(glm::mat4(1.0f), flightPose.bodyPitch,
 			                               glm::vec3(1.0f, 0.0f, 0.0f));
 			mat4 FlightRoll = glm::rotate(glm::mat4(1.0f), flightPose.bodyRoll,
 			                              glm::vec3(0.0f, 0.0f, 1.0f));
+			const float creatureScale =
+				isAlphaPokemon(flyingPokemon) ? 2.25f : 1.6f;
+			S = glm::scale(glm::mat4(1.0f), glm::vec3(creatureScale));
 			M = T * R * FlightPitch * FlightRoll * S;
 			glUniformMatrix4fv(pokemon2->getUniform("M"), 1, GL_FALSE, &M[0][0]);
 			applyCharizardAnimation(pokemon2, flightPose, true);
@@ -3523,6 +5707,13 @@ GLuint rockTex, umbreonTex;
 				battleEffectPalette(pendingWildMove.type);
 			const float playerVisualScale =
 				battleMoveVisualScale(pendingPlayerMove.id);
+			const glm::vec3 playerImpactPosition =
+				pendingPlayerMoveVolume.impactPosition;
+			const glm::vec3 wildImpactPosition = wildMoveReleased
+			                                        ? pendingWildMoveVolume.impactPosition
+			                                        : battlePlayerHitPosition;
+			const float wildVisualScale =
+				battleMoveVisualScale(pendingWildMove.id);
 			const float visualTime = static_cast<float>(captureRenderNow);
 			const float pulse = 0.94f + std::sin(visualTime * 18.0f) * 0.06f;
 
@@ -3535,13 +5726,14 @@ GLuint rockTex, umbreonTex;
 			glDepthMask(GL_FALSE);
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 
-			auto drawBattleOrb = [&](const glm::vec3 &position, float orbScale,
-			                         const BattleEffectPalette &palette,
-			                         float opacity, float shellAmount) {
+			auto drawBattleVolume = [&](const glm::vec3 &position,
+			                            const glm::vec3 &volumeScale,
+			                            const BattleEffectPalette &palette,
+			                            float opacity, float shellAmount) {
 				const glm::mat4 translation =
 					glm::translate(glm::mat4(1.0f), position);
 				const glm::mat4 scale = glm::scale(
-					glm::mat4(1.0f), glm::vec3(std::max(0.01f, orbScale)));
+					glm::mat4(1.0f), glm::max(volumeScale, glm::vec3(0.01f)));
 				const glm::mat4 model = translation * scale;
 				glUniformMatrix4fv(battleEffectShader->getUniform("M"), 1,
 				                   GL_FALSE, &model[0][0]);
@@ -3555,6 +5747,12 @@ GLuint rockTex, umbreonTex;
 				            glm::clamp(shellAmount, 0.0f, 1.0f));
 				shape->draw(battleEffectShader, false);
 			};
+			auto drawBattleOrb = [&](const glm::vec3 &position, float orbScale,
+			                         const BattleEffectPalette &palette,
+			                         float opacity, float shellAmount) {
+				drawBattleVolume(
+					position, glm::vec3(orbScale), palette, opacity, shellAmount);
+			};
 
 			if (battleVisualSample.phase == BattlePhase::PlayerWindup)
 			{
@@ -3566,33 +5764,84 @@ GLuint rockTex, umbreonTex;
 			}
 			else if (battleVisualSample.phase == BattlePhase::PlayerProjectile)
 			{
-				const int trailCount = battleMoveTrailCount(pendingPlayerMove.id);
-				for (int trailIndex = trailCount - 1; trailIndex >= 0; --trailIndex)
+				if (pendingPlayerMove.id == BattleMoveId::Flamethrower)
 				{
-					const float delayedProgress = glm::clamp(
-						battleVisualSample.phaseProgress -
-						    static_cast<float>(trailIndex) * 0.055f,
-						0.0f, 1.0f);
-					if (trailIndex > 0 && delayedProgress <= 0.0f)
+					constexpr int CONE_SEGMENTS = 7;
+					for (int segment = 1; segment <= CONE_SEGMENTS; ++segment)
 					{
-						continue;
+						const float segmentFraction =
+							static_cast<float>(segment) /
+							static_cast<float>(CONE_SEGMENTS);
+						const float progress =
+							segmentFraction * battleVisualSample.phaseProgress;
+						if (progress <= 0.0f)
+						{
+							continue;
+						}
+						const glm::vec3 position = glm::mix(
+							battlePlayerOrigin, playerImpactPosition, progress);
+						drawBattleOrb(
+							position, (0.13f + progress * 0.36f) * pulse,
+							playerPalette, 0.88f - progress * 0.18f, 0.06f);
 					}
-					const glm::vec3 position = battleProjectilePosition(
-						battlePlayerOrigin, battleTargetPosition, delayedProgress);
-					const float trailScale =
-						1.0f - static_cast<float>(trailIndex) * 0.09f;
-					const float trailOpacity =
-						0.92f - static_cast<float>(trailIndex) * 0.10f;
-					drawBattleOrb(position,
-					              0.245f * pulse * playerVisualScale * trailScale,
-					              playerPalette, trailOpacity, 0.05f);
+				}
+				else
+				{
+					const bool translucentAirSlash =
+						pendingPlayerMove.id == BattleMoveId::AirSlash;
+					if (translucentAirSlash)
+					{
+						glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+					}
+					const int trailCount = battleMoveTrailCount(pendingPlayerMove.id);
+					for (int trailIndex = trailCount - 1; trailIndex >= 0; --trailIndex)
+					{
+						const float delayedProgress = glm::clamp(
+							battleVisualSample.phaseProgress -
+							    static_cast<float>(trailIndex) *
+							        (translucentAirSlash ? 0.10f : 0.055f),
+							0.0f, 1.0f);
+						if (trailIndex > 0 && delayedProgress <= 0.0f)
+						{
+							continue;
+						}
+						const glm::vec3 position = battleProjectilePosition(
+							battlePlayerOrigin, playerImpactPosition, delayedProgress);
+						const float trailScale =
+							1.0f - static_cast<float>(trailIndex) * 0.09f;
+						const float trailOpacity = translucentAirSlash
+							                           ? 0.64f -
+							                                 static_cast<float>(trailIndex) * 0.12f
+							                           : 0.92f -
+							                                 static_cast<float>(trailIndex) * 0.10f;
+						if (translucentAirSlash)
+						{
+							const float slashScale =
+								pulse * playerVisualScale * trailScale;
+							drawBattleVolume(
+								position,
+								glm::vec3(0.52f, 0.14f, 0.18f) * slashScale,
+								playerPalette, trailOpacity, 0.14f);
+						}
+						else
+						{
+							drawBattleOrb(
+								position,
+								0.245f * pulse * playerVisualScale * trailScale,
+								playerPalette, trailOpacity, 0.05f);
+						}
+					}
+					if (translucentAirSlash)
+					{
+						glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+					}
 				}
 			}
 			else if (battleVisualSample.phase == BattlePhase::TargetImpact)
 			{
 				const float progress = easedBattleProgress(
 					battleVisualSample.phaseProgress);
-				drawBattleOrb(battleTargetPosition,
+				drawBattleOrb(playerImpactPosition,
 				              (0.30f + progress * 0.74f) * playerVisualScale,
 				              playerPalette, (1.0f - progress) * 0.82f, 0.92f);
 			}
@@ -3614,7 +5863,7 @@ GLuint rockTex, umbreonTex;
 					const float jawGap =
 						0.48f * (1.0f - easedBattleProgress(progress)) + 0.09f;
 					const float opacity = visibility * (0.72f + pulse * 0.16f);
-					const glm::vec3 biteCenter = battlePlayerHitPosition;
+					const glm::vec3 biteCenter = wildImpactPosition;
 					drawBattleOrb(
 						biteCenter + glm::vec3(0.0f, jawGap, 0.0f),
 						0.18f * pulse, wildPalette, opacity, 0.72f);
@@ -3622,28 +5871,79 @@ GLuint rockTex, umbreonTex;
 						biteCenter - glm::vec3(0.0f, jawGap, 0.0f),
 						0.18f * pulse, wildPalette, opacity, 0.72f);
 				}
+				else if (pendingWildMove.id == BattleMoveId::VineWhip)
+				{
+					constexpr int VINE_SEGMENTS = 5;
+					for (int segment = 1; segment <= VINE_SEGMENTS; ++segment)
+					{
+						const float fraction = static_cast<float>(segment) /
+						                       static_cast<float>(VINE_SEGMENTS);
+						const float progress = fraction *
+						                       battleVisualSample.phaseProgress;
+						if (progress <= 0.0f)
+						{
+							continue;
+						}
+						drawBattleOrb(
+							glm::mix(battleTargetPosition, wildImpactPosition, progress),
+							0.13f * pulse * wildVisualScale, wildPalette,
+							0.78f, 0.06f);
+					}
+				}
+				else if (pendingWildMove.id == BattleMoveId::WingAttack)
+				{
+					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+					for (int trailIndex = 2; trailIndex >= 0; --trailIndex)
+					{
+						const float progress = glm::clamp(
+							battleVisualSample.phaseProgress -
+							    static_cast<float>(trailIndex) * 0.11f,
+							0.0f, 1.0f);
+						if (trailIndex > 0 && progress <= 0.0f)
+						{
+							continue;
+						}
+						drawBattleOrb(
+							battleProjectilePosition(battleTargetPosition,
+							                         wildImpactPosition, progress),
+							0.22f * pulse * wildVisualScale *
+							    (1.0f - static_cast<float>(trailIndex) * 0.12f),
+							wildPalette,
+							0.64f - static_cast<float>(trailIndex) * 0.12f, 0.12f);
+					}
+					glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+				}
 				else
 				{
 					const glm::vec3 position = battleProjectilePosition(
-						battleTargetPosition, battlePlayerHitPosition,
+						battleTargetPosition, wildImpactPosition,
 						battleVisualSample.phaseProgress);
 					drawBattleOrb(
-						position, 0.225f * pulse, wildPalette, 0.90f, 0.08f);
+						position, 0.225f * pulse * wildVisualScale,
+						wildPalette, 0.90f, 0.08f);
 				}
 			}
 			else if (battleVisualSample.phase == BattlePhase::PlayerImpact)
 			{
 				const float progress = easedBattleProgress(
 					battleVisualSample.phaseProgress);
-				const float impactScale = playerEvadedCurrentCounter
+				const bool wildConnected = pendingWildMoveVolume.hitTarget;
+				const float impactScale = !wildConnected
+				                              ? 0.20f + progress * 0.40f
+				                              : playerEvadedCurrentCounter
 				                              ? 0.18f + progress * 0.34f
 				                              : 0.28f + progress * 0.68f;
-				const float impactOpacity = playerEvadedCurrentCounter
+				const float impactOpacity = !wildConnected
+				                                ? (1.0f - progress) * 0.35f
+				                                : playerEvadedCurrentCounter
 				                                ? (1.0f - progress) * 0.28f
 				                                : (1.0f - progress) * 0.78f;
-				drawBattleOrb(battlePlayerHitPosition, impactScale, wildPalette,
+				drawBattleOrb(wildImpactPosition, impactScale * wildVisualScale,
+				              wildPalette,
 				              impactOpacity,
-				              playerEvadedCurrentCounter ? 0.18f : 0.94f);
+				              !wildConnected ? 0.30f
+				                             : (playerEvadedCurrentCounter ? 0.18f
+				                                                            : 0.94f));
 			}
 
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -3654,9 +5954,643 @@ GLuint rockTex, umbreonTex;
 
 	void frame()
 	{
+		const double frameNow = glfwGetTime();
+		double frameDeltaSeconds =
+			lastFrameTime >= 0.0 ? frameNow - lastFrameTime : 0.0;
+		lastFrameTime = frameNow;
+		if (resetRequested)
+		{
+			resetGame();
+			frameDeltaSeconds = 0.0;
+		}
+		gameSession.advance(frameDeltaSeconds,
+		                    [this](const GameSessionStep &step) {
+			                    simulateStep(step);
+		                    });
 		render();
 		glfwSwapBuffers(windowManager->getHandle());
 		glfwPollEvents();
+	}
+
+	bool configureNativeQaScenario(
+		const std::string &scenario, std::string &errorMessage)
+	{
+		if (scenario == "camp")
+		{
+			resetPlayerAtFieldCamp();
+			return true;
+		}
+		if (scenario == "trails")
+		{
+			for (const WorldInterestPointPlacement &point : INTEREST_POINT_PLACEMENTS)
+			{
+				bool onTrail = false;
+				for (const WorldTrailSegment &segment : TRAIL_SEGMENTS)
+				{
+					onTrail = onTrail || worldTrailCoverage(point.center, segment) > 0.99f;
+				}
+				if (!onTrail)
+				{
+					errorMessage =
+						"Native QA interest point is disconnected from the trail network.";
+					return false;
+				}
+			}
+			mycam.resetAt(glm::vec3(0.0f, 13.0f, 18.0f), 0.0f);
+			setStatus(
+				"Native QA: camp trail forks toward Moonshadow and Redrock observation points.");
+			return true;
+		}
+		if (scenario == "alpha-nest" || scenario == "alpha-capture")
+		{
+			const WorldInterestPointPlacement *nest = alphaNestPoint();
+			if (!nest)
+			{
+				errorMessage = "Native QA Alpha nest world anchor is missing.";
+				return false;
+			}
+			const float nestGround = terrainHeightMap.heightAt(
+				nest->center.x, nest->center.y);
+			float maximumLandingHeightDelta = 0.0f;
+			for (int sample = 0; sample < 8; ++sample)
+			{
+				const float angle = static_cast<float>(sample) * 3.1415926f / 4.0f;
+				const glm::vec2 offset(std::cos(angle) * 1.6f,
+				                       std::sin(angle) * 1.6f);
+				maximumLandingHeightDelta = std::max(
+					maximumLandingHeightDelta,
+					std::fabs(terrainHeightMap.heightAt(
+					              nest->center.x + offset.x,
+					              nest->center.y + offset.y) -
+					          nestGround));
+			}
+			if (maximumLandingHeightDelta > 0.55f)
+			{
+				errorMessage =
+					"Native QA Alpha nest is too steep for a readable landing encounter.";
+				return false;
+			}
+
+			caughtCount = 0;
+			defeatedCount = 0;
+			pokeballs = RESEARCH_STARTING_POKEBALLS;
+			playerHealth = battleStatsFor(PokemonSpecies::Charizard).maximumHealth;
+			researchSubmitted = false;
+			gameFinished = false;
+			battleSequenceActive = false;
+			resetCaptureInteraction();
+			clearPerfectCounterWindow();
+			researchProgress = ResearchMissionProgress();
+			researchProgress.moonshadowTrackSurveys = 1;
+			researchProgress.redrockLookoutSurveys = 1;
+			alphaNestProgress = AlphaNestProgress();
+			hideAlphaPokemon();
+			for (int index = 0; index < NUM_POKEMON; ++index)
+			{
+				umbreons[index] = Pokemon(0, index);
+				umbreons[index].setCaught(1);
+			}
+			for (int index = 0; index < FLYING_POKEMON; ++index)
+			{
+				charizards[index] = Pokemon(1, index);
+				charizards[index].setCaught(1);
+			}
+
+			mycam.resetAt(
+				glm::vec3(nest->center.x, nestGround, nest->center.y), 0.0f);
+			if (!interactWithWorld(false) || !alphaNestProgress.active ||
+			    alphaNestProgress.resolved ||
+			    !alphaCharizard.isEcologicallyPresent())
+			{
+				errorMessage =
+					"Native QA production F interaction did not activate Alpha Charizard.";
+				return false;
+			}
+			const HudTelemetry activationTelemetry =
+				collectHudTelemetry(gameplayTime());
+			std::string telemetryError;
+			if (!activationTelemetry.regional.visible ||
+			    !activationTelemetry.regional.alpha ||
+			    activationTelemetry.regional.recorded ||
+			    activationTelemetry.regional.ready ||
+			    !validateHudTelemetry(activationTelemetry, &telemetryError))
+			{
+				errorMessage = "Native QA Alpha activation HUD contract failed" +
+				               (telemetryError.empty()
+				                    ? std::string(".")
+				                    : std::string(": ") + telemetryError);
+				return false;
+			}
+
+			const glm::vec2 cameraGroundPosition =
+				nest->center + glm::vec2(6.5f, 12.0f);
+			mycam.resetAt(
+				glm::vec3(cameraGroundPosition.x,
+				          alphaCharizard.getPos().y - 1.5f,
+				          cameraGroundPosition.y),
+				0.0f);
+			currentTarget = PokemonTargetSelection();
+			refreshTarget();
+			const FieldRadarContact radarContact = nearestResearchRadarContact();
+			Pokemon *radarPokemon = pokemonForRadarContact(radarContact);
+			const HudTelemetry telemetry = collectHudTelemetry(gameplayTime());
+			if (targetedPokemon() != &alphaCharizard ||
+			    radarPokemon != &alphaCharizard || !telemetry.target.visible ||
+			    telemetry.target.name != "Alpha Charizard" ||
+			    !telemetry.radar.visible ||
+			    telemetry.radar.name != "Alpha Charizard" ||
+			    !validateHudTelemetry(telemetry, &telemetryError))
+			{
+				errorMessage = "Native QA Alpha target, radar, or HUD contract failed" +
+				               (telemetryError.empty()
+				                    ? std::string(".")
+				                    : std::string(": ") + telemetryError);
+				return false;
+			}
+			if (scenario == "alpha-capture")
+			{
+				for (int index = 0; index < NUM_POKEMON; ++index)
+				{
+					umbreons[index].setCaught(0);
+				}
+				for (int index = 0; index < FLYING_POKEMON; ++index)
+				{
+					charizards[index].setCaught(0);
+				}
+				const int ordinaryCaughtBefore = caughtCount;
+				const int ordinaryDefeatedBefore = defeatedCount;
+				if (!alphaCharizard.setHealth(std::max(
+				        1, alphaCharizard.getMaximumHealth() / 8)))
+				{
+					errorMessage =
+						"Native QA could not weaken Alpha Charizard for capture.";
+					return false;
+				}
+				captureProjectileOrigin =
+					alphaCharizard.getPos() + glm::vec3(0.0f, 0.0f, 8.0f);
+				CaptureSweepHit hit;
+				hit.hit = true;
+				hit.fraction = 0.5f;
+				hit.position = captureCollisionCenter(alphaCharizard);
+				hit.quality = 1.0f;
+				captureRandom = CaptureRandom(0x1234u);
+				beginCaptureSequenceFromHit(
+					alphaCharizard, hit, gameplayTime());
+				if (!captureSequenceActive ||
+				    pendingCaptureTarget != &alphaCharizard ||
+				    !pendingCaptureResult.captured)
+				{
+					errorMessage =
+						"Native QA weakened Alpha capture did not succeed.";
+					return false;
+				}
+				finishCaptureSequence(false);
+				const GameSaveData resolvedSave = currentGameSave();
+				std::string saveError;
+				if (!alphaNestProgress.resolved || alphaNestProgress.active ||
+				    alphaCharizard.getCaught() == 0 ||
+				    alphaCharizard.isEcologicallyPresent() ||
+				    caughtCount != ordinaryCaughtBefore ||
+				    defeatedCount != ordinaryDefeatedBefore ||
+				    !resolvedSave.alphaNestResolved ||
+				    !validateGameSave(resolvedSave, gameSaveLimits(), &saveError) ||
+				    encodeGameSave(resolvedSave, gameSaveLimits()).empty())
+				{
+					errorMessage = "Native QA Alpha capture resolution failed" +
+					               (saveError.empty()
+					                    ? std::string(".")
+					                    : std::string(": ") + saveError);
+					return false;
+				}
+				for (int index = 0; index < NUM_POKEMON; ++index)
+				{
+					umbreons[index].setCaught(1);
+				}
+				for (int index = 0; index < FLYING_POKEMON; ++index)
+				{
+					charizards[index].setCaught(1);
+				}
+				const glm::vec2 resolvedViewPosition =
+					nest->center + glm::vec2(0.0f, 7.0f);
+				mycam.resetAt(
+					glm::vec3(
+						resolvedViewPosition.x,
+						terrainHeightMap.heightAt(
+							resolvedViewPosition.x, resolvedViewPosition.y),
+						resolvedViewPosition.y),
+					0.0f);
+				currentTarget = PokemonTargetSelection();
+				setStatus(
+					"Native QA: weakened Alpha capture resolved without changing ordinary survey counters.");
+				return true;
+			}
+			setStatus(
+				"Native QA: production F interaction activated the visible Alpha Charizard encounter.");
+			return true;
+		}
+		if (scenario == "moonshadow-survey" ||
+		    scenario == "redrock-survey")
+		{
+			const WorldInterestPointKind requestedKind =
+				scenario == "moonshadow-survey"
+				    ? WorldInterestPointKind::MoonshadowTracks
+				    : WorldInterestPointKind::RedrockLookout;
+			const WorldInterestPointPlacement *site = nullptr;
+			for (const WorldInterestPointPlacement &point : INTEREST_POINT_PLACEMENTS)
+			{
+				if (point.kind == requestedKind)
+				{
+					site = &point;
+					break;
+				}
+			}
+			if (!site)
+			{
+				errorMessage = "Native QA regional research site is missing.";
+				return false;
+			}
+
+			qaLightingCyclePhaseOverride =
+				requestedKind == WorldInterestPointKind::MoonshadowTracks
+				    ? 0.75f
+				    : 0.25f;
+			caughtCount = 0;
+			pokeballs = RESEARCH_STARTING_POKEBALLS;
+			playerHealth =
+				battleStatsFor(PokemonSpecies::Charizard).maximumHealth;
+			researchSubmitted = false;
+			gameFinished = false;
+			battleSequenceActive = false;
+			resetCaptureInteraction();
+			researchProgress = ResearchMissionProgress();
+			const float siteGround = terrainHeightMap.heightAt(
+				site->center.x, site->center.y);
+			float maximumLandingHeightDelta = 0.0f;
+			for (int sample = 0; sample < 8; ++sample)
+			{
+				const float angle = static_cast<float>(sample) * 3.1415926f / 4.0f;
+				const glm::vec2 offset(std::cos(angle) * 1.4f,
+				                       std::sin(angle) * 1.4f);
+				maximumLandingHeightDelta = std::max(
+					maximumLandingHeightDelta,
+					std::fabs(terrainHeightMap.heightAt(
+					              site->center.x + offset.x,
+					              site->center.y + offset.y) -
+					          siteGround));
+			}
+			if (maximumLandingHeightDelta > 0.5f)
+			{
+				errorMessage =
+					"Native QA regional marker is too steep for a readable landing site.";
+				return false;
+			}
+			mycam.resetAt(
+				glm::vec3(site->center.x, siteGround, site->center.y), 0.0f);
+			if (!interactWithWorld(false))
+			{
+				errorMessage =
+					"Native QA F interaction did not record the regional site.";
+				return false;
+			}
+			const bool moonRecorded =
+				researchProgress.moonshadowTrackSurveys == 1;
+			const bool redRecorded =
+				researchProgress.redrockLookoutSurveys == 1;
+			if ((requestedKind == WorldInterestPointKind::MoonshadowTracks &&
+			     (!moonRecorded || redRecorded)) ||
+			    (requestedKind == WorldInterestPointKind::RedrockLookout &&
+			     (!redRecorded || moonRecorded)))
+			{
+				errorMessage =
+					"Native QA regional interaction credited the wrong objective.";
+				return false;
+			}
+			interactWithWorld(false);
+			if (researchProgress.moonshadowTrackSurveys > 1 ||
+			    researchProgress.redrockLookoutSurveys > 1)
+			{
+				errorMessage =
+					"Native QA repeated interaction duplicated regional credit.";
+				return false;
+			}
+
+			const glm::vec2 cameraGroundPosition =
+				site->center + glm::vec2(0.0f, 4.8f);
+			mycam.resetAt(
+				glm::vec3(
+					cameraGroundPosition.x,
+					terrainHeightMap.heightAt(cameraGroundPosition.x,
+					                          cameraGroundPosition.y),
+					cameraGroundPosition.y),
+				0.0f);
+			const HudTelemetry telemetry = collectHudTelemetry(gameplayTime());
+			std::string telemetryError;
+			const std::size_t expectedObjectiveIndex =
+				requestedKind == WorldInterestPointKind::MoonshadowTracks ? 3u : 4u;
+			if (!telemetry.regional.visible || !telemetry.regional.recorded ||
+			    telemetry.regional.ready ||
+			    telemetry.completedMissionObjectives != 1 ||
+			    telemetry.missionObjectives[expectedObjectiveIndex].current != 1 ||
+			    !validateHudTelemetry(telemetry, &telemetryError))
+			{
+				errorMessage = "Native QA regional HUD did not publish the recorded state" +
+				               (telemetryError.empty()
+				                    ? std::string(".")
+				                    : std::string(": ") + telemetryError);
+				return false;
+			}
+			setStatus(
+				requestedKind == WorldInterestPointKind::MoonshadowTracks
+				    ? "Native QA: Moonshadow night tracks recorded through the production F interaction."
+				    : "Native QA: Redrock lookout recorded through the production F interaction.");
+			return true;
+		}
+		if (scenario == "ecology-day" || scenario == "ecology-night")
+		{
+			const bool day = scenario == "ecology-day";
+			qaLightingCyclePhaseOverride = day ? 0.25f : 0.75f;
+			const float daylight = worldLightingAt(gameplayTime()).daylight;
+			int umbreonPresent = 0;
+			int meadowPresent = 0;
+			for (int index = 0; index < NUM_POKEMON; ++index)
+			{
+				umbreons[index] = Pokemon(0, index);
+				const bool present = pokemonEcologySlotPresent(
+					umbreons[index].getSpecies(), umbreons[index].getID(), daylight);
+				umbreons[index].setEcologicallyPresent(present);
+				if (present &&
+				    umbreons[index].getSpecies() == PokemonSpecies::Umbreon)
+				{
+					++umbreonPresent;
+				}
+				else if (present)
+				{
+					++meadowPresent;
+				}
+			}
+			for (int index = 0; index < FLYING_POKEMON; ++index)
+			{
+				charizards[index] = Pokemon(1, index);
+				charizards[index].setEcologicallyPresent(
+					pokemonEcologySlotPresent(PokemonSpecies::Charizard, index,
+					                          daylight));
+			}
+			if ((day && meadowPresent <= umbreonPresent) ||
+			    (!day && umbreonPresent <= meadowPresent))
+			{
+				errorMessage =
+					"Native QA ecology pool did not match its intended time band.";
+				return false;
+			}
+			mycam.resetAt(glm::vec3(-7.0f, 8.0f, 4.0f), 0.22f);
+			currentTarget = PokemonTargetSelection();
+			refreshPokemonCollisionObstacles();
+			setStatus(
+				day ? "Native QA: daytime meadow species active; Umbreon sheltering."
+				    : "Native QA: nighttime Umbreon emerged; meadow wildlife sheltering.");
+			return true;
+		}
+		Pokemon *target = nullptr;
+		for (int index = 0; index < NUM_POKEMON; ++index)
+		{
+			umbreons[index].setCaught(1);
+		}
+		for (int index = 0; index < FLYING_POKEMON; ++index)
+		{
+			charizards[index].setCaught(1);
+		}
+		auto placeGroundEncounter = [&](const glm::vec3 &playerPosition,
+		                                const glm::vec3 &targetPosition) {
+			target = &umbreons[0];
+			target->setCaught(0);
+			target->restoreHealth();
+			target->setPosition(targetPosition);
+			const float groundHeight = terrainHeightMap.heightAt(
+				playerPosition.x, playerPosition.z);
+			mycam.resetAt(
+				glm::vec3(playerPosition.x, groundHeight, playerPosition.z), 0.0f);
+		};
+
+		if (scenario == "landmarks")
+		{
+			mycam.resetAt(glm::vec3(0.0f, 10.0f, 10.0f), 0.0f);
+			setStatus(
+				"Native QA: Moonshadow Edge and Redrock Highlands visible from the air.");
+			return true;
+		}
+		if (scenario == "umbreon" || scenario == "perfect-dodge")
+		{
+			placeGroundEncounter(glm::vec3(0.0f, 0.0f, 20.0f),
+			                     glm::vec3(0.0f, 0.0f, 15.8f));
+		}
+		else if (scenario == "charizard")
+		{
+			target = &charizards[0];
+			target->setCaught(0);
+			target->restoreHealth();
+			target->setPosition(glm::vec3(0.0f, 19.5f, 8.0f));
+			mycam.resetAt(glm::vec3(0.0f, 18.0f, 20.0f), 0.0f);
+		}
+		else if (scenario == "capture-aim" || scenario == "capture-hit")
+		{
+			placeGroundEncounter(glm::vec3(0.0f, 0.0f, 20.0f),
+			                     glm::vec3(
+				                     0.0f, 0.0f,
+				                     scenario == "capture-hit" ? 13.0f : 12.0f));
+		}
+		else if (scenario == "ember" || scenario == "air-slash" ||
+		         scenario == "flamethrower")
+		{
+			placeGroundEncounter(glm::vec3(0.0f, 0.0f, 20.0f),
+			                     glm::vec3(0.0f, 0.0f, 14.0f));
+		}
+		else if (scenario == "cover-blocked")
+		{
+			placeGroundEncounter(glm::vec3(-5.0f, 0.0f, 21.0f),
+			                     glm::vec3(-5.0f, 0.0f, 9.0f));
+		}
+		else
+		{
+				errorMessage = "Unknown Native QA scenario: " + scenario +
+				               ". Expected camp, trails, alpha-nest, alpha-capture, moonshadow-survey, redrock-survey, "
+				               "landmarks, ecology-day, ecology-night, "
+			               "capture-aim, capture-hit, umbreon, "
+			               "charizard, ember, "
+			               "air-slash, flamethrower, perfect-dodge, or "
+			               "cover-blocked.";
+			return false;
+		}
+
+		playerHealth = battleStatsFor(PokemonSpecies::Charizard).maximumHealth;
+		gameFinished = false;
+		resetCaptureInteraction();
+		battleSequenceActive = false;
+		pendingBattleTarget = nullptr;
+		clearPerfectCounterWindow();
+		nextWildEncounterTime = -1.0;
+		refreshPokemonCollisionObstacles();
+		const double now = gameplayTime();
+		if (scenario == "capture-aim" || scenario == "capture-hit")
+		{
+			refreshTarget();
+			if (targetedPokemon() != target)
+			{
+				errorMessage = "Native QA capture target could not be locked.";
+				return false;
+			}
+			beginCaptureAim();
+			if (scenario == "capture-hit")
+			{
+				captureRandom = CaptureRandom(0x1234u);
+				captureAimStarted = now;
+				const int pokeballsBeforeThrow = pokeballs;
+				releaseCaptureThrow(false);
+				for (int step = 1;
+				     step <= 180 && captureProjectile.active &&
+				     !captureSequenceActive;
+				     ++step)
+				{
+					updateCaptureProjectile(
+						1.0f / 60.0f, now + static_cast<double>(step) / 60.0);
+				}
+				if (!captureSequenceActive || pendingCaptureTarget != target ||
+				    !pendingCaptureResult.captured ||
+				    pokeballs != pokeballsBeforeThrow - 1)
+				{
+					errorMessage =
+						"Native QA capture throw did not produce a successful target hit.";
+					return false;
+				}
+				captureSequenceStarted =
+					now - static_cast<double>(captureThrowFlightPhaseDuration() + 0.15f);
+				const CaptureSequenceSample sample = currentCaptureSample(now);
+				if (sample.phase != CapturePhase::Absorbing ||
+				    sample.pokemonVisible || !sample.ballVisible)
+				{
+					errorMessage =
+						"Native QA target hit did not reach the absorbing phase.";
+					return false;
+				}
+				setStatus(
+					"Native QA: minimum-charge Poke Ball hit and began capture.");
+				return true;
+			}
+			captureAimStarted =
+				now - static_cast<double>(captureProjectileConfig.fullChargeSeconds) *
+				          0.72;
+			const float charge = currentCaptureCharge(now);
+			const std::vector<glm::vec3> prediction = capturePredictionPath(now);
+			if (!captureAiming || charge < 0.719f || charge > 0.721f ||
+			    prediction.size() < 6)
+			{
+				errorMessage =
+					"Native QA capture aim did not produce the expected charged arc.";
+				return false;
+			}
+			setStatus("Native QA: Poke Ball aim held at 72% charge.");
+			return true;
+		}
+
+		if (scenario == "ember" || scenario == "air-slash" ||
+		    scenario == "flamethrower" || scenario == "cover-blocked")
+		{
+			const int moveSlot = scenario == "air-slash"
+			                         ? 1
+			                         : (scenario == "flamethrower" ? 2 : 0);
+			selectPlayerMove(moveSlot);
+			refreshTarget();
+			if (targetedPokemon() != target)
+			{
+				errorMessage = "Native QA player-move target could not be locked.";
+				return false;
+			}
+			attackTargetedPokemon();
+			if (!battleSequenceActive)
+			{
+				errorMessage = "Unable to start the requested Native QA player move.";
+				return false;
+			}
+			const float qaElapsed = pendingPlayerMove.timing.startupSeconds +
+				(scenario == "cover-blocked"
+				     ? pendingPlayerMove.timing.activeSeconds + 0.09f
+				     : pendingPlayerMove.timing.activeSeconds * 0.58f);
+			battleSequenceStarted = now - static_cast<double>(qaElapsed);
+			updateBattleSequence(now);
+			const BattleSequenceSample sample = currentBattleSample(now);
+			if (scenario == "cover-blocked")
+			{
+				if (sample.phase != BattlePhase::TargetImpact ||
+				    pendingPlayerMoveVolume.impact !=
+				        BattleMoveImpactKind::Obstacle ||
+				    pendingPlayerMoveVolume.hitTarget)
+				{
+					errorMessage =
+						"Native QA cover scene did not resolve an obstacle impact.";
+					return false;
+				}
+			}
+			else if (sample.phase != BattlePhase::PlayerProjectile ||
+			         !playerMoveReleased || !pendingPlayerMoveVolume.hitTarget)
+			{
+				std::ostringstream diagnostic;
+				diagnostic
+					<< "Native QA player move did not reach a target-bound active phase"
+					<< " (phase=" << static_cast<int>(sample.phase)
+					<< ", released=" << playerMoveReleased
+					<< ", impact="
+					<< static_cast<int>(pendingPlayerMoveVolume.impact)
+					<< ", travel=" << pendingPlayerMoveVolume.travelDistance
+					<< ", originY=" << battlePlayerOrigin.y
+					<< ", targetY=" << battleTargetPosition.y << ").";
+				errorMessage = diagnostic.str();
+				return false;
+			}
+			return true;
+		}
+
+		startWildEncounter(*target, now);
+		if (!battleSequenceActive)
+		{
+			errorMessage = "Unable to start the requested Native QA encounter.";
+			return false;
+		}
+		if (scenario == "perfect-dodge")
+		{
+			const glm::vec3 dodgeOrigin = mypos;
+			if (!mycam.requestDodge())
+			{
+				errorMessage = "Native QA perfect dodge could not be requested.";
+				return false;
+			}
+			mycam.process(1.0 / 60.0);
+			dodgeEffectOrigin = dodgeOrigin;
+			dodgeEffectStarted = now - 0.18;
+			const float qaElapsed = pendingWildMove.timing.startupSeconds +
+			                        pendingWildMove.timing.activeSeconds + 0.04f;
+			battleSequenceStarted = now - static_cast<double>(qaElapsed);
+			updateBattleSequence(now);
+			const BattleSequenceSample sample = currentBattleSample(now);
+			if (sample.phase != BattlePhase::PlayerImpact ||
+			    !playerEvadedCurrentCounter || !perfectDodgePending ||
+			    !mycam.isInvulnerable())
+			{
+				errorMessage =
+					"Native QA encounter did not resolve a real perfect dodge.";
+				return false;
+			}
+			return true;
+		}
+		const float qaElapsed = pendingWildMove.timing.startupSeconds +
+		                        pendingWildMove.timing.activeSeconds * 0.58f;
+		battleSequenceStarted = now - static_cast<double>(qaElapsed);
+		updateBattleSequence(now);
+		const BattleSequenceSample sample = currentBattleSample(now);
+		if (sample.phase != BattlePhase::WildProjectile || !wildMoveReleased)
+		{
+			errorMessage = "Native QA encounter did not reach its active phase.";
+			return false;
+		}
+		return true;
 	}
 };
 #ifdef __EMSCRIPTEN__
@@ -3664,30 +6598,82 @@ void webMainLoop(void *userData)
 {
 	static_cast<Application *>(userData)->frame();
 }
+#else
+bool captureFrontFramebuffer(
+	GLFWwindow *window, const std::string &outputPath, std::string &errorMessage)
+{
+	int width = 0;
+	int height = 0;
+	glfwGetFramebufferSize(window, &width, &height);
+	if (width <= 0 || height <= 0)
+	{
+		errorMessage = "The Native framebuffer has no drawable area.";
+		return false;
+	}
+	std::vector<unsigned char> pixels(
+		static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3u);
+	glFinish();
+	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	glReadBuffer(GL_FRONT);
+	glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+	glPixelStorei(GL_PACK_ALIGNMENT, 4);
+	const GLenum readError = glGetError();
+	if (readError != GL_NO_ERROR)
+	{
+		errorMessage = "OpenGL framebuffer read failed with error " +
+		               std::to_string(static_cast<unsigned int>(readError)) + ".";
+		return false;
+	}
+	return writeBottomUpRgbPpm(
+		outputPath, width, height, pixels, &errorMessage);
+}
 #endif
 //******************************************************************************************
 int main(int argc, char **argv)
 {
 	srand(time(NULL));
+	const bool resourceDirectoryExplicit = argc >= 2;
 	std::string resourceDir = "resources"; // Where the resources are loaded from
+	std::string qaCapturePath;
+	std::string qaScenario = "camp";
 	if (argc >= 2)
 	{
 		resourceDir = argv[1];
 	}
+#ifndef __EMSCRIPTEN__
+	for (int index = 2; index < argc; ++index)
+	{
+		const std::string argument = argv[index];
+		if (argument == "--qa-capture" && index + 1 < argc)
+		{
+			qaCapturePath = argv[++index];
+		}
+		else if (argument == "--qa-scenario" && index + 1 < argc)
+		{
+			qaScenario = argv[++index];
+		}
+		else
+		{
+			std::cerr << "Unknown or incomplete Native QA argument: "
+			          << argument << std::endl;
+			return 1;
+		}
+	}
+#endif
 	auto hasResources = [](const std::string &directory) {
 		std::ifstream sphere(directory + "/sphere.obj");
 		return sphere.good();
 	};
-	if (argc < 2 && !hasResources(resourceDir))
-	{
-		resourceDir = "../resources";
-	}
-	if (!hasResources(resourceDir))
+	const std::string locatedResourceDirectory = locateResourceDirectory(
+		argc > 0 ? argv[0] : std::string(), resourceDir,
+		resourceDirectoryExplicit, hasResources);
+	if (locatedResourceDirectory.empty())
 	{
 		std::cerr << "Resource directory not found: " << resourceDir << std::endl;
 		std::cerr << "Run from the project root or pass the resources path as an argument." << std::endl;
 		return 1;
 	}
+	resourceDir = locatedResourceDirectory;
 
 	Application *application = new Application();
 
@@ -3716,12 +6702,45 @@ int main(int argc, char **argv)
 	// Initialize scene.
 	application->init(resourceDir);
 	application->initGeom();
+	if (!qaCapturePath.empty())
+	{
+		std::string scenarioError;
+		if (!application->configureNativeQaScenario(qaScenario, scenarioError))
+		{
+			std::cerr << "Unable to configure Native QA scene: "
+			          << scenarioError << std::endl;
+			windowManager->shutdown();
+			delete windowManager;
+			delete application;
+			return 1;
+		}
+	}
 
 	// Native builds own the event loop. Browsers must return control to the
 	// JavaScript event loop, so Emscripten calls one frame at a time instead.
 #ifdef __EMSCRIPTEN__
 	emscripten_set_main_loop_arg(webMainLoop, application, 0, 1);
 #else
+	if (!qaCapturePath.empty())
+	{
+		application->frame();
+		std::string captureError;
+		const bool captured = captureFrontFramebuffer(
+			windowManager->getHandle(), qaCapturePath, captureError);
+		if (captured)
+		{
+			std::cout << "Native QA frame captured: " << qaCapturePath << std::endl;
+		}
+		else
+		{
+			std::cerr << "Unable to capture Native QA frame: "
+			          << captureError << std::endl;
+		}
+		windowManager->shutdown();
+		delete windowManager;
+		delete application;
+		return captured ? 0 : 1;
+	}
 	while (!glfwWindowShouldClose(windowManager->getHandle()))
 	{
 		application->frame();

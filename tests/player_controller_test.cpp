@@ -1,4 +1,5 @@
 #include "PlayerController.h"
+#include "PokemonAnimation.h"
 
 #include <cmath>
 #include <iostream>
@@ -31,8 +32,8 @@ void testTurnButtonsMatchControllerDirection()
 {
 	const float leftTurn = playerTurnAxis(true, false);
 	const float rightTurn = playerTurnAxis(false, true);
-	expectNear(leftTurn, -1.0f, 0.0001f, "A produces the game's left-turn input");
-	expectNear(rightTurn, 1.0f, 0.0001f, "D produces the game's right-turn input");
+	expectNear(leftTurn, 1.0f, 0.0001f, "A produces the controller's left-turn input");
+	expectNear(rightTurn, -1.0f, 0.0001f, "D produces the controller's right-turn input");
 	expectNear(playerTurnAxis(true, true), 0.0f, 0.0001f,
 	           "opposing turn buttons cancel each other");
 
@@ -41,18 +42,35 @@ void testTurnButtonsMatchControllerDirection()
 	input.turn = leftTurn;
 	PlayerController leftTurningPlayer;
 	leftTurningPlayer.update(input, 0.05f);
-	expectTrue(leftTurningPlayer.yaw() < 0.0f,
-	           "A decreases yaw using the game's left-turn convention");
-	expectTrue(leftTurningPlayer.position().x > 0.0f,
-	           "A follows the game's rendered left-turn convention");
+	expectTrue(leftTurningPlayer.yaw() > 0.0f,
+	           "A increases yaw toward screen-left from the initial camera");
+	expectTrue(leftTurningPlayer.position().x < 0.0f,
+	           "A moves the heading toward screen-left from the initial camera");
 
 	input.turn = rightTurn;
 	PlayerController rightTurningPlayer;
 	rightTurningPlayer.update(input, 0.05f);
-	expectTrue(rightTurningPlayer.yaw() > 0.0f,
-	           "D increases yaw using the game's right-turn convention");
-	expectTrue(rightTurningPlayer.position().x < 0.0f,
-	           "D follows the game's rendered right-turn convention");
+	expectTrue(rightTurningPlayer.yaw() < 0.0f,
+	           "D decreases yaw toward screen-right from the initial camera");
+	expectTrue(rightTurningPlayer.position().x > 0.0f,
+	           "D moves the heading toward screen-right from the initial camera");
+}
+
+void testTurnButtonsMatchRenderedPlayerBank()
+{
+	PokemonAnimationInput input;
+	input.flying = true;
+	input.speedRatio = 1.0f;
+
+	input.turnRatio = playerTurnAxis(true, false);
+	const PokemonAnimationPose leftTurn = samplePokemonAnimation(input);
+	expectTrue(std::sin(leftTurn.bodyRoll) < 0.0f,
+	           "A banks the rendered player's upper body toward screen-left");
+
+	input.turnRatio = playerTurnAxis(false, true);
+	const PokemonAnimationPose rightTurn = samplePokemonAnimation(input);
+	expectTrue(std::sin(rightTurn.bodyRoll) > 0.0f,
+	           "D banks the rendered player's upper body toward screen-right");
 }
 
 void testSmoothHorizontalAccelerationAndBraking()
@@ -453,6 +471,7 @@ void testDodgeRespectsPlayerRadiusAtFieldBoundary()
 int main()
 {
 	testTurnButtonsMatchControllerDirection();
+	testTurnButtonsMatchRenderedPlayerBank();
 	testSmoothHorizontalAccelerationAndBraking();
 	testGravityAcceleratesAndLandsOnce();
 	testTerrainGroundPreventsUphillPenetration();

@@ -63,6 +63,12 @@ void testMidnightIsDimAndBelowTheField()
 	           "midnight sun is below the field");
 	expectTrue(midnight.ambientColor.x < noon.ambientColor.x,
 	           "midnight ambient light is dimmer than noon");
+	expectTrue(midnight.ambientColor.x >= 0.30f &&
+	               midnight.ambientColor.z >= 0.50f,
+	           "midnight keeps enough cool ambient light for readable models");
+	expectTrue(midnight.fogColor.x >= 0.09f &&
+	               midnight.skyHorizonColor.z >= 0.34f,
+	           "midnight distance cues remain visible against the dark sky");
 	expectTrue(midnight.fogColor.x < noon.fogColor.x,
 	           "midnight fog shifts darker than noon");
 	expectTrue(midnight.fogStart < noon.fogStart,

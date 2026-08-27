@@ -2,6 +2,9 @@
 
 #include "BattleMechanics.h"
 #include "PokemonAnimation.h"
+#include "PokemonEcology.h"
+#include "PokemonPerception.h"
+#include "PokemonSpawn.h"
 
 #include <algorithm>
 #include <cmath>
@@ -23,14 +26,22 @@ constexpr float FLYING_FLEE_SPEED = 4.8f;
 constexpr float UMBREON_PURSUE_SPEED = 2.7f;
 constexpr float GROUND_ACCELERATION = 5.5f;
 constexpr float FLYING_ACCELERATION = 4.0f;
-constexpr float FLEE_ENTER_DISTANCE = 5.5f;
 constexpr float FLEE_EXIT_DISTANCE = 9.0f;
-constexpr float UMBREON_ALERT_DISTANCE = 10.0f;
 constexpr float UMBREON_DISENGAGE_DISTANCE = 13.0f;
 constexpr float UMBREON_ATTACK_DISTANCE = 5.2f;
 constexpr float UMBREON_ALERT_DURATION = 0.7f;
 constexpr float UMBREON_ATTACK_COOLDOWN = 1.8f;
+constexpr float CHARIZARD_PURSUE_SPEED = 3.2f;
+constexpr float CHARIZARD_DISENGAGE_DISTANCE = 24.0f;
+constexpr float CHARIZARD_ATTACK_DISTANCE = 18.0f;
+constexpr float CHARIZARD_ATTACK_VERTICAL_RANGE = 8.0f;
+constexpr float CHARIZARD_ALERT_DURATION = 0.9f;
+constexpr float CHARIZARD_ATTACK_COOLDOWN = 3.2f;
 constexpr float ARRIVAL_DISTANCE = 0.65f;
+constexpr float SUSPICIOUS_ALERTNESS = 0.35f;
+constexpr float DETECTED_ALERTNESS = 0.70f;
+constexpr float CALM_ALERTNESS = 0.18f;
+constexpr float COMPANION_ALERTNESS = 0.86f;
 
 float clampValue(float value, float minimum, float maximum)
 {
@@ -66,6 +77,56 @@ float horizontalDistance(const glm::vec3 &first, const glm::vec3 &second)
 {
 	return glm::length(glm::vec2(first.x - second.x, first.z - second.z));
 }
+
+PokemonPerceptionConfig perceptionConfigFor(PokemonSpecies species)
+{
+	PokemonPerceptionConfig config;
+	switch (species)
+	{
+	case PokemonSpecies::Bulbasaur:
+		config.visionRange = 11.0f;
+		config.visionHalfAngleRadians = 0.9599311f;
+		config.verticalTolerance = 7.0f;
+		config.hearingRange = 7.0f;
+		config.alertDecayPerSecond = 0.22f;
+		break;
+	case PokemonSpecies::Eevee:
+		config.visionRange = 13.0f;
+		config.visionHalfAngleRadians = 1.1344640f;
+		config.verticalTolerance = 8.0f;
+		config.hearingRange = 8.5f;
+		break;
+	case PokemonSpecies::Umbreon:
+		config.visionRange = 15.0f;
+		config.visionHalfAngleRadians = 1.2217305f;
+		config.verticalTolerance = 10.0f;
+		config.hearingRange = 10.0f;
+		config.visionAlertGainPerSecond = 0.92f;
+		config.hearingAlertGainPerSecond = 0.52f;
+		config.alertDecayPerSecond = 0.16f;
+		break;
+	case PokemonSpecies::Charizard:
+		config.visionRange = 20.0f;
+		config.visionHalfAngleRadians = 1.3962634f;
+		config.verticalTolerance = 20.0f;
+		config.hearingRange = 12.0f;
+		config.visionAlertGainPerSecond = 1.20f;
+		config.alertDecayPerSecond = 0.16f;
+		break;
+	}
+	return config;
+}
+
+PokemonPerceptionConfig applyEcology(
+	PokemonPerceptionConfig config, const PokemonEcologySample &ecology)
+{
+	config.visionRange *= ecology.visionRangeScale;
+	config.hearingRange *= ecology.hearingRangeScale;
+	config.visionAlertGainPerSecond *= ecology.alertGainScale;
+	config.hearingAlertGainPerSecond *= ecology.alertGainScale;
+	config.alertDecayPerSecond *= ecology.alertDecayScale;
+	return config;
+}
 }
 
 Pokemon::Pokemon()
@@ -83,14 +144,34 @@ Pokemon::Pokemon(int flyPokemon, int pokemonID, std::uint32_t seed)
 	                         (flying_ ? 0x9E3779B9u : 0x85EBCA6Bu);
 	motionPhase_ = static_cast<float>((pokemonID % 17 + 17) % 17) * 0.37f;
 
-	for (int attempt = 0; attempt < 24; ++attempt)
+	const PokemonSpawnArea &spawnArea = pokemonSpawnArea(getSpecies());
+	bool placedInRegion = false;
+	for (int attempt = 0; attempt < 48; ++attempt)
 	{
-		position_.x = random(-SPAWN_LIMIT, SPAWN_LIMIT);
-		position_.z = random(-SPAWN_LIMIT, SPAWN_LIMIT);
-		if (glm::length(glm::vec2(position_.x, position_.z)) >= SAFE_SPAWN_RADIUS)
+		const float angle = random(-PI, PI);
+		const float minimumRadiusSquared =
+			spawnArea.minimumRadius * spawnArea.minimumRadius;
+		const float maximumRadiusSquared =
+			spawnArea.maximumRadius * spawnArea.maximumRadius;
+		const float radius = std::sqrt(random(minimumRadiusSquared,
+		                                      maximumRadiusSquared));
+		const glm::vec2 candidate = spawnArea.center +
+			glm::vec2(std::sin(angle), std::cos(angle)) * radius;
+		if (std::fabs(candidate.x) <= SPAWN_LIMIT &&
+		    std::fabs(candidate.y) <= SPAWN_LIMIT &&
+		    glm::length(candidate) >= SAFE_SPAWN_RADIUS &&
+		    dominantWorldRegion(candidate) == spawnArea.region)
 		{
+			position_.x = candidate.x;
+			position_.z = candidate.y;
+			placedInRegion = true;
 			break;
 		}
+	}
+	if (!placedInRegion)
+	{
+		position_.x = spawnArea.center.x;
+		position_.z = spawnArea.center.y + spawnArea.minimumRadius;
 	}
 	position_.y = flying_ ? random(16.0f, 26.0f) : 0.0f;
 	heading_ = random(-PI, PI);
@@ -119,10 +200,11 @@ PokemonBehaviorEvents Pokemon::update(double deltaSeconds,
 
 PokemonBehaviorEvents Pokemon::update(
 	double deltaSeconds, const glm::vec3 &playerPosition,
-	const std::vector<PokemonNavigationBlocker> &navigationBlockers)
+	const std::vector<PokemonNavigationBlocker> &navigationBlockers,
+	float playerNoise, bool lineOfSightClear, float daylight)
 {
 	PokemonBehaviorEvents events;
-	if (caught_ || isFainted())
+	if (caught_ || isFainted() || !ecologicallyPresent_)
 	{
 		velocity_ = glm::vec3(0.0f);
 		return events;
@@ -134,8 +216,12 @@ PokemonBehaviorEvents Pokemon::update(
 		return events;
 	}
 	age_ += step;
-	events = updateBehavior(step, playerPosition);
-	glm::vec3 desired = desiredVelocity(playerPosition);
+	const PokemonEcologySample ecology =
+		samplePokemonEcology(getSpecies(), daylight);
+	events = updateBehavior(
+		step, playerPosition, playerNoise, lineOfSightClear, ecology);
+	glm::vec3 desired =
+		desiredVelocity(playerPosition, ecology.wanderSpeedScale);
 	if (!flying_)
 	{
 		desired = steerGroundPokemonVelocity(
@@ -163,19 +249,37 @@ void Pokemon::startle()
 	{
 		return;
 	}
+	alertness_ = 1.0f;
 	enterFlee();
 	stateTimer_ = 1.5f;
 }
 
+void Pokemon::receiveCompanionAlert()
+{
+	if (caught_ || isFainted() || behaviorState_ == PokemonBehaviorState::Flee ||
+	    behaviorState_ == PokemonBehaviorState::Pursue)
+	{
+		return;
+	}
+	alertness_ = std::max(alertness_, COMPANION_ALERTNESS);
+	destination_ = position_;
+	velocity_ = glm::vec3(0.0f);
+}
+
 void Pokemon::coolDownAfterAttack()
 {
-	if (caught_ || isFainted() || flying_ ||
-	    getSpecies() != PokemonSpecies::Umbreon)
+	const bool territorialUmbreon =
+		!flying_ && getSpecies() == PokemonSpecies::Umbreon;
+	const bool aerialCharizard =
+		flying_ && getSpecies() == PokemonSpecies::Charizard;
+	if (caught_ || isFainted() || (!territorialUmbreon && !aerialCharizard))
 	{
 		return;
 	}
 	behaviorState_ = PokemonBehaviorState::Alert;
-	stateTimer_ = UMBREON_ATTACK_COOLDOWN;
+	alertness_ = std::max(alertness_, DETECTED_ALERTNESS);
+	stateTimer_ = aerialCharizard ? CHARIZARD_ATTACK_COOLDOWN
+	                              : UMBREON_ATTACK_COOLDOWN;
 	destination_ = position_;
 	velocity_ = glm::vec3(0.0f);
 }
@@ -215,12 +319,34 @@ void Pokemon::restoreHealth()
 	health_ = maximumHealth_;
 }
 
+void Pokemon::setEcologicallyPresent(bool present)
+{
+	if (ecologicallyPresent_ == present)
+	{
+		return;
+	}
+	ecologicallyPresent_ = present;
+	velocity_ = glm::vec3(0.0f);
+	playerVisible_ = false;
+	playerHeard_ = false;
+	alertness_ = 0.0f;
+	destination_ = position_;
+	behaviorState_ = PokemonBehaviorState::Idle;
+	stateTimer_ = present ? random(0.25f, 0.75f) : 0.0f;
+}
+
 void Pokemon::setDestination(float x, float y, float z)
 {
 	destination_.x = clampValue(x, -FIELD_LIMIT, FIELD_LIMIT);
 	destination_.y = flying_ ? clampValue(y, MIN_FLIGHT_HEIGHT, MAX_FLIGHT_HEIGHT) : 0.0f;
 	destination_.z = clampValue(z, -FIELD_LIMIT, FIELD_LIMIT);
 	behaviorState_ = PokemonBehaviorState::Wander;
+}
+
+void Pokemon::investigateAt(float x, float y, float z)
+{
+	setDestination(x, y, z);
+	investigationDestinationPending_ = true;
 }
 
 void Pokemon::setPosition(const glm::vec3 &position)
@@ -232,6 +358,9 @@ void Pokemon::setPosition(const glm::vec3 &position)
 	velocity_ = glm::vec3(0.0f);
 	behaviorState_ = PokemonBehaviorState::Idle;
 	stateTimer_ = 0.0f;
+	alertness_ = 0.0f;
+	playerVisible_ = false;
+	playerHeard_ = false;
 }
 
 int Pokemon::getCaught() const
@@ -261,6 +390,11 @@ bool Pokemon::isFainted() const
 	return health_ <= 0;
 }
 
+bool Pokemon::isEcologicallyPresent() const
+{
+	return ecologicallyPresent_;
+}
+
 glm::vec3 Pokemon::getPos() const
 {
 	return position_;
@@ -288,7 +422,9 @@ float Pokemon::getSpeedRatio() const
 	{
 		speedLimit = behaviorState_ == PokemonBehaviorState::Flee
 		                 ? FLYING_FLEE_SPEED
-		                 : FLYING_WANDER_SPEED;
+		                 : (behaviorState_ == PokemonBehaviorState::Pursue
+		                        ? CHARIZARD_PURSUE_SPEED
+		                        : FLYING_WANDER_SPEED);
 	}
 	else if (behaviorState_ == PokemonBehaviorState::Flee)
 	{
@@ -299,6 +435,21 @@ float Pokemon::getSpeedRatio() const
 		speedLimit = UMBREON_PURSUE_SPEED;
 	}
 	return speedLimit > 0.0f ? clampValue(glm::length(velocity_) / speedLimit, 0.0f, 1.0f) : 0.0f;
+}
+
+float Pokemon::getAlertness() const
+{
+	return alertness_;
+}
+
+bool Pokemon::canSeePlayer() const
+{
+	return playerVisible_;
+}
+
+bool Pokemon::canHearPlayer() const
+{
+	return playerHeard_;
 }
 
 PokemonBehaviorState Pokemon::getBehaviorState() const
@@ -361,22 +512,45 @@ void Pokemon::enterFlee()
 }
 
 PokemonBehaviorEvents Pokemon::updateBehavior(
-	float deltaSeconds, const glm::vec3 &playerPosition)
+	float deltaSeconds, const glm::vec3 &playerPosition, float playerNoise,
+	bool lineOfSightClear, const PokemonEcologySample &ecology)
 {
 	PokemonBehaviorEvents events;
+	const bool investigating = investigationDestinationPending_;
+	investigationDestinationPending_ = false;
 	const float playerDistance = horizontalDistance(position_, playerPosition);
+	PokemonPerceptionInput perceptionInput;
+	perceptionInput.observerPosition = position_;
+	perceptionInput.observerHeading = heading_;
+	perceptionInput.subjectPosition = playerPosition;
+	perceptionInput.subjectNoise = playerNoise;
+	perceptionInput.currentAlertness = alertness_;
+	perceptionInput.deltaSeconds = deltaSeconds;
+	perceptionInput.lineOfSightClear = lineOfSightClear;
+	const PokemonPerceptionSample perception = samplePokemonPerception(
+		applyEcology(perceptionConfigFor(getSpecies()), ecology), perceptionInput);
+	alertness_ = perception.alertness;
+	playerVisible_ = perception.visible;
+	playerHeard_ = perception.heard;
+	const bool perceivedPlayer = playerVisible_ || playerHeard_;
+	const glm::vec2 toPlayer(playerPosition.x - position_.x,
+	                         playerPosition.z - position_.z);
+	if (perceivedPlayer && alertness_ >= SUSPICIOUS_ALERTNESS &&
+	    glm::length(toPlayer) > 0.001f)
+	{
+		targetHeading_ = std::atan2(toPlayer.x, toPlayer.y);
+	}
 	if (behaviorState_ == PokemonBehaviorState::Flee)
 	{
-		const float enterDistance =
-		    flying_ ? FLEE_ENTER_DISTANCE + 1.5f : FLEE_ENTER_DISTANCE;
-		if (playerDistance < enterDistance)
+		if (perceivedPlayer || alertness_ >= DETECTED_ALERTNESS)
 		{
 			stateTimer_ = 1.0f;
 		}
 		else
 		{
 			stateTimer_ -= deltaSeconds;
-			if (playerDistance > FLEE_EXIT_DISTANCE && stateTimer_ <= 0.0f)
+			if (alertness_ <= CALM_ALERTNESS &&
+			    playerDistance > FLEE_EXIT_DISTANCE && stateTimer_ <= 0.0f)
 			{
 				chooseWanderDestination();
 			}
@@ -386,51 +560,64 @@ PokemonBehaviorEvents Pokemon::updateBehavior(
 
 	const bool territorialUmbreon =
 	    !flying_ && getSpecies() == PokemonSpecies::Umbreon;
-	if (territorialUmbreon)
+	const bool aerialCharizard =
+	    flying_ && getSpecies() == PokemonSpecies::Charizard;
+	const bool aggressiveEncounter = territorialUmbreon || aerialCharizard;
+	if (aggressiveEncounter)
 	{
-		const glm::vec2 toPlayer(playerPosition.x - position_.x,
-		                         playerPosition.z - position_.z);
-		if (isThreatening() && glm::length(toPlayer) > 0.001f)
-		{
-			targetHeading_ = std::atan2(toPlayer.x, toPlayer.y);
-		}
-
 		if (behaviorState_ == PokemonBehaviorState::Alert)
 		{
-			if (playerDistance > UMBREON_DISENGAGE_DISTANCE)
+			if (alertness_ <= CALM_ALERTNESS)
 			{
 				chooseWanderDestination();
 				return events;
 			}
-			stateTimer_ -= deltaSeconds;
-			if (stateTimer_ <= 0.0f)
+			if (alertness_ >= DETECTED_ALERTNESS)
 			{
-				behaviorState_ = PokemonBehaviorState::Pursue;
-				stateTimer_ = 0.0f;
+				stateTimer_ -= deltaSeconds;
+				if (stateTimer_ <= 0.0f)
+				{
+					behaviorState_ = PokemonBehaviorState::Pursue;
+					stateTimer_ = 0.0f;
+				}
 			}
 			return events;
 		}
 
 		if (behaviorState_ == PokemonBehaviorState::Pursue)
 		{
-			if (playerDistance > UMBREON_DISENGAGE_DISTANCE)
+			const float disengageDistance = aerialCharizard
+			                                  ? CHARIZARD_DISENGAGE_DISTANCE
+			                                  : UMBREON_DISENGAGE_DISTANCE;
+			if (alertness_ <= CALM_ALERTNESS ||
+			    (playerDistance > disengageDistance && !perceivedPlayer))
 			{
 				chooseWanderDestination();
 				return events;
 			}
 			stateTimer_ = std::max(0.0f, stateTimer_ - deltaSeconds);
-			if (playerDistance <= UMBREON_ATTACK_DISTANCE && stateTimer_ <= 0.0f)
+			const float attackDistance = aerialCharizard
+			                                 ? CHARIZARD_ATTACK_DISTANCE
+			                                 : UMBREON_ATTACK_DISTANCE;
+			const bool verticalAligned =
+				!aerialCharizard ||
+				std::fabs(playerPosition.y - position_.y) <=
+					CHARIZARD_ATTACK_VERTICAL_RANGE;
+			if (playerDistance <= attackDistance && verticalAligned &&
+			    stateTimer_ <= 0.0f)
 			{
 				events.attackReady = true;
-				stateTimer_ = UMBREON_ATTACK_COOLDOWN;
+				stateTimer_ = aerialCharizard ? CHARIZARD_ATTACK_COOLDOWN
+				                               : UMBREON_ATTACK_COOLDOWN;
 			}
 			return events;
 		}
 
-		if (playerDistance < UMBREON_ALERT_DISTANCE)
+		if (alertness_ >= SUSPICIOUS_ALERTNESS)
 		{
 			behaviorState_ = PokemonBehaviorState::Alert;
-			stateTimer_ = UMBREON_ALERT_DURATION;
+			stateTimer_ = aerialCharizard ? CHARIZARD_ALERT_DURATION
+			                              : UMBREON_ALERT_DURATION;
 			destination_ = position_;
 			velocity_ = glm::vec3(0.0f);
 			if (glm::length(toPlayer) > 0.001f)
@@ -442,20 +629,34 @@ PokemonBehaviorEvents Pokemon::updateBehavior(
 		}
 	}
 
-	const float enterDistance = flying_ ? FLEE_ENTER_DISTANCE + 1.5f : FLEE_ENTER_DISTANCE;
-	if (!territorialUmbreon && playerDistance < enterDistance)
+	if (!aggressiveEncounter && behaviorState_ == PokemonBehaviorState::Alert)
 	{
-		if (behaviorState_ != PokemonBehaviorState::Flee)
+		if (alertness_ >= DETECTED_ALERTNESS)
 		{
 			enterFlee();
+			return events;
 		}
-		stateTimer_ = 1.0f;
+		if (alertness_ <= CALM_ALERTNESS)
+		{
+			chooseWanderDestination();
+		}
+		return events;
+	}
+
+	if (!aggressiveEncounter && alertness_ >= SUSPICIOUS_ALERTNESS)
+	{
+		behaviorState_ = PokemonBehaviorState::Alert;
+		stateTimer_ = 0.0f;
+		destination_ = position_;
+		velocity_ = glm::vec3(0.0f);
+		events.alertStarted = true;
 		return events;
 	}
 
 	stateTimer_ -= deltaSeconds;
-	if ((behaviorState_ == PokemonBehaviorState::Wander && isAtDestination()) ||
-	    stateTimer_ <= 0.0f)
+	if (!investigating &&
+	    ((behaviorState_ == PokemonBehaviorState::Wander && isAtDestination()) ||
+	     stateTimer_ <= 0.0f))
 	{
 		if (!flying_ && random(0.0f, 1.0f) < 0.28f)
 		{
@@ -469,7 +670,8 @@ PokemonBehaviorEvents Pokemon::updateBehavior(
 	return events;
 }
 
-glm::vec3 Pokemon::desiredVelocity(const glm::vec3 &playerPosition) const
+glm::vec3 Pokemon::desiredVelocity(const glm::vec3 &playerPosition,
+	                               float wanderSpeedScale) const
 {
 	if (behaviorState_ == PokemonBehaviorState::Idle ||
 	    behaviorState_ == PokemonBehaviorState::Alert)
@@ -494,6 +696,49 @@ glm::vec3 Pokemon::desiredVelocity(const glm::vec3 &playerPosition) const
 	}
 	else if (behaviorState_ == PokemonBehaviorState::Pursue)
 	{
+		if (flying_ && getSpecies() == PokemonSpecies::Charizard)
+		{
+			glm::vec3 horizontalToPlayer = playerPosition - position_;
+			horizontalToPlayer.y = 0.0f;
+			const float distance = glm::length(horizontalToPlayer);
+			if (distance <= 0.001f)
+			{
+				horizontalToPlayer =
+					glm::vec3(std::sin(heading_), 0.0f, std::cos(heading_));
+			}
+			else
+			{
+				horizontalToPlayer /= distance;
+			}
+			if (distance > 16.0f)
+			{
+				direction = horizontalToPlayer;
+			}
+			else if (distance < 11.0f)
+			{
+				direction = -horizontalToPlayer;
+			}
+			else
+			{
+				const float orbitSign = pokemonID_ % 2 == 0 ? 1.0f : -1.0f;
+				const glm::vec3 tangent(-horizontalToPlayer.z, 0.0f,
+				                         horizontalToPlayer.x);
+				direction = tangent * orbitSign +
+				            horizontalToPlayer * ((distance - 14.0f) * 0.15f);
+			}
+			const float preferredHeight = clampValue(
+				playerPosition.y + 5.0f, MIN_FLIGHT_HEIGHT, MAX_FLIGHT_HEIGHT);
+			direction.y = clampValue(
+				(preferredHeight - position_.y) * 0.18f, -0.55f, 0.55f);
+			if (glm::length(direction) <= 0.001f)
+			{
+				return glm::vec3(0.0f);
+			}
+			direction = glm::normalize(direction);
+			speed = CHARIZARD_PURSUE_SPEED;
+		}
+		else
+		{
 		direction = playerPosition - position_;
 		direction.y = 0.0f;
 		if (glm::length(direction) <= UMBREON_ATTACK_DISTANCE)
@@ -502,6 +747,7 @@ glm::vec3 Pokemon::desiredVelocity(const glm::vec3 &playerPosition) const
 		}
 		direction = glm::normalize(direction);
 		speed = UMBREON_PURSUE_SPEED;
+		}
 	}
 	else
 	{
@@ -515,7 +761,8 @@ glm::vec3 Pokemon::desiredVelocity(const glm::vec3 &playerPosition) const
 			return glm::vec3(0.0f);
 		}
 		direction = glm::normalize(direction);
-		speed = flying_ ? FLYING_WANDER_SPEED : GROUND_WANDER_SPEED;
+		speed = (flying_ ? FLYING_WANDER_SPEED : GROUND_WANDER_SPEED) *
+		        std::max(wanderSpeedScale, 0.0f);
 	}
 
 	if (flying_ && behaviorState_ == PokemonBehaviorState::Flee)

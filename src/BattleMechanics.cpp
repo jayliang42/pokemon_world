@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 BattleStats battleStatsFor(PokemonSpecies species)
 {
@@ -27,9 +28,12 @@ BattleMove playerBattleMove()
 const std::array<BattleMove, PLAYER_MOVE_SLOT_COUNT> &playerBattleMoves()
 {
 	static const std::array<BattleMove, PLAYER_MOVE_SLOT_COUNT> moves = {{
-		{BattleMoveId::Ember, "Ember", PokemonType::Fire, 28, 2.8f},
-		{BattleMoveId::AirSlash, "Air Slash", PokemonType::Flying, 34, 4.6f},
-		{BattleMoveId::Flamethrower, "Flamethrower", PokemonType::Fire, 42, 7.2f},
+		{BattleMoveId::Ember, "Ember", PokemonType::Fire, 28, 2.8f,
+		 {0.18f, 0.30f, 0.18f, 0.08f, 0.20f}},
+		{BattleMoveId::AirSlash, "Air Slash", PokemonType::Flying, 34, 4.6f,
+		 {0.32f, 0.40f, 0.36f, 0.16f, 0.55f}},
+		{BattleMoveId::Flamethrower, "Flamethrower", PokemonType::Fire, 42, 7.2f,
+		 {0.52f, 0.68f, 0.72f, 0.26f, 1.0f}},
 	}};
 	return moves;
 }
@@ -39,15 +43,29 @@ BattleMove wildBattleMoveFor(PokemonSpecies species)
 	switch (species)
 	{
 	case PokemonSpecies::Umbreon:
-		return {BattleMoveId::Bite, "Bite", PokemonType::Dark, 24, 0.0f};
+		return {BattleMoveId::Bite, "Bite", PokemonType::Dark, 24, 0.0f,
+		        {0.48f, 0.20f, 0.32f, 0.18f, 1.0f}};
 	case PokemonSpecies::Bulbasaur:
-		return {BattleMoveId::VineWhip, "Vine Whip", PokemonType::Grass, 26, 0.0f};
+		return {BattleMoveId::VineWhip, "Vine Whip", PokemonType::Grass, 26, 0.0f,
+		        {0.55f, 0.44f, 0.30f, 0.14f, 1.0f}};
 	case PokemonSpecies::Eevee:
-		return {BattleMoveId::Tackle, "Tackle", PokemonType::Normal, 23, 0.0f};
+		return {BattleMoveId::Tackle, "Tackle", PokemonType::Normal, 23, 0.0f,
+		        {0.38f, 0.28f, 0.25f, 0.10f, 1.0f}};
 	case PokemonSpecies::Charizard:
-		return {BattleMoveId::WingAttack, "Wing Attack", PokemonType::Flying, 30, 0.0f};
+		return {BattleMoveId::WingAttack, "Wing Attack", PokemonType::Flying, 30, 0.0f,
+		        {0.50f, 0.42f, 0.35f, 0.18f, 1.0f}};
 	}
 	return BattleMove();
+}
+
+bool validateBattleMoveTiming(const BattleMoveTiming &timing)
+{
+	return std::isfinite(timing.startupSeconds) && timing.startupSeconds > 0.0f &&
+	       std::isfinite(timing.activeSeconds) && timing.activeSeconds > 0.0f &&
+	       std::isfinite(timing.recoverySeconds) && timing.recoverySeconds > 0.0f &&
+	       std::isfinite(timing.staggerSeconds) && timing.staggerSeconds >= 0.0f &&
+	       std::isfinite(timing.movementLock) && timing.movementLock >= 0.0f &&
+	       timing.movementLock <= 1.0f;
 }
 
 float battleTypeEffectiveness(PokemonType attackType,
@@ -131,4 +149,24 @@ PlayerHitResult resolvePlayerHit(int currentHealth, int incomingDamage,
 	                                std::max(0, incomingDamage));
 	result.remainingHealth -= result.appliedDamage;
 	return result;
+}
+
+bool isPerfectDodge(bool evaded, float secondsSinceDodgeStarted)
+{
+	return evaded && std::isfinite(secondsSinceDodgeStarted) &&
+	       secondsSinceDodgeStarted >= PERFECT_DODGE_MIN_SECONDS &&
+	       secondsSinceDodgeStarted <= PERFECT_DODGE_MAX_SECONDS;
+}
+
+int perfectCounterDamage(int baseDamage)
+{
+	if (baseDamage <= 0)
+	{
+		return 0;
+	}
+	const long long boosted = std::llround(
+		static_cast<double>(baseDamage) *
+		static_cast<double>(PERFECT_COUNTER_DAMAGE_MULTIPLIER));
+	return static_cast<int>(std::min(
+		boosted, static_cast<long long>(std::numeric_limits<int>::max())));
 }

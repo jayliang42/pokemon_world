@@ -33,15 +33,15 @@ WorldLighting sampleWorldLighting(float cyclePhase)
 		std::sin(azimuth) * horizontal, elevation,
 		std::cos(azimuth) * horizontal));
 	lighting.daylight = daylight;
-	lighting.sunColor = glm::mix(glm::vec3(0.12f, 0.16f, 0.30f),
+	lighting.sunColor = glm::mix(glm::vec3(0.22f, 0.29f, 0.48f),
 	                             glm::vec3(1.0f, 0.91f, 0.74f), daylight);
-	lighting.ambientColor = glm::mix(glm::vec3(0.045f, 0.075f, 0.14f),
+	lighting.ambientColor = glm::mix(glm::vec3(0.32f, 0.38f, 0.52f),
 	                                 glm::vec3(0.52f, 0.60f, 0.70f), daylight);
-	lighting.fogColor = glm::mix(glm::vec3(0.025f, 0.055f, 0.13f),
+	lighting.fogColor = glm::mix(glm::vec3(0.10f, 0.16f, 0.31f),
 	                             glm::vec3(0.66f, 0.84f, 0.96f), daylight);
-	lighting.skyHorizonColor = glm::mix(glm::vec3(0.025f, 0.055f, 0.14f),
+	lighting.skyHorizonColor = glm::mix(glm::vec3(0.11f, 0.19f, 0.36f),
 	                                    glm::vec3(0.74f, 0.91f, 1.0f), daylight);
-	lighting.skyZenithColor = glm::mix(glm::vec3(0.004f, 0.012f, 0.055f),
+	lighting.skyZenithColor = glm::mix(glm::vec3(0.035f, 0.085f, 0.23f),
 	                                   glm::vec3(0.12f, 0.48f, 0.94f), daylight);
 	lighting.fogStart = glm::mix(18.0f, 26.0f, daylight);
 	lighting.fogEnd = glm::mix(48.0f, 62.0f, daylight);

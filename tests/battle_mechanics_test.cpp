@@ -45,6 +45,34 @@ void testSpeciesStatsAndMovesAreDistinct()
 	           "the player loadout exposes the additional Charizard moves");
 }
 
+void testPlayerMoveTimingsExpressDistinctRisk()
+{
+	const BattleMove ember = playerBattleMoves()[0];
+	const BattleMove airSlash = playerBattleMoves()[1];
+	const BattleMove flamethrower = playerBattleMoves()[2];
+	expectTrue(ember.timing.startupSeconds < airSlash.timing.startupSeconds &&
+	               airSlash.timing.startupSeconds <
+	                   flamethrower.timing.startupSeconds,
+	           "higher-commitment moves have progressively longer startup");
+	expectTrue(ember.timing.recoverySeconds < airSlash.timing.recoverySeconds &&
+	               airSlash.timing.recoverySeconds <
+	                   flamethrower.timing.recoverySeconds,
+	           "higher-commitment moves have progressively longer recovery");
+	expectTrue(ember.timing.movementLock < airSlash.timing.movementLock &&
+	               airSlash.timing.movementLock <
+	                   flamethrower.timing.movementLock,
+	           "Ember stays mobile while Flamethrower commits the player");
+	expectTrue(ember.timing.staggerSeconds < airSlash.timing.staggerSeconds &&
+	               airSlash.timing.staggerSeconds <
+	                   flamethrower.timing.staggerSeconds,
+	           "stronger moves produce longer hit reactions");
+	for (const BattleMove &move : playerBattleMoves())
+	{
+		expectTrue(validateBattleMoveTiming(move.timing),
+		           "every player move exposes a valid timing profile");
+	}
+}
+
 void testTypeMatchAndEffectiveness()
 {
 	expectTrue(moveMatchesSpecies(PokemonType::Fire, PokemonSpecies::Charizard),
@@ -115,16 +143,37 @@ void testInvulnerabilityEvadesPlayerHit()
 	expectTrue(result.appliedDamage == 0 && result.remainingHealth == 30,
 	           "invulnerability prevents both damage and health loss");
 }
+
+void testPerfectDodgeTimingAndCounterReward()
+{
+	expectTrue(!isPerfectDodge(false, 0.20f),
+	           "taking or otherwise failing the evade cannot be perfect");
+	expectTrue(!isPerfectDodge(true, 0.04f),
+	           "a dodge started too late does not open a counter window");
+	expectTrue(isPerfectDodge(true, 0.08f) &&
+	               isPerfectDodge(true, 0.32f),
+	           "the documented perfect-dodge timing endpoints are inclusive");
+	expectTrue(!isPerfectDodge(true, 0.33f),
+	           "an early panic dodge remains an ordinary evade");
+	expectTrue(perfectCounterDamage(10) == 14 &&
+	               perfectCounterDamage(0) == 0,
+	           "a perfect counter grants a rounded 35 percent damage bonus");
+	expectTrue(PERFECT_COUNTER_WINDOW_SECONDS == 1.6f &&
+	               PERFECT_COUNTER_STARTUP_MULTIPLIER == 0.55f,
+	           "counter duration and faster startup remain explicit gameplay data");
+}
 }
 
 int main()
 {
 	testSpeciesStatsAndMovesAreDistinct();
+	testPlayerMoveTimingsExpressDistinctRisk();
 	testTypeMatchAndEffectiveness();
 	testDamageIsDeterministicAndRespectsMatchups();
 	testDamageNeverFallsBelowOne();
 	testPlayerHitAppliesBoundedDamage();
 	testInvulnerabilityEvadesPlayerHit();
+	testPerfectDodgeTimingAndCounterReward();
 
 	if (failures != 0)
 	{

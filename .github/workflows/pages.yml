@@ -43,6 +43,9 @@ jobs:
           sed -i "s#__BUILD_REVISION__#${GITHUB_SHA}#g; s#index.js#index.js?rev=${GITHUB_SHA}#g" site/index.html
           touch site/.nojekyll
 
+      - name: Smoke test clean browser storage
+        run: bash tests/web_clean_storage_smoke.sh site
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 

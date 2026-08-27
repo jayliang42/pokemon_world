@@ -1,6 +1,7 @@
 #include "Pokemon.h"
 #include "PokemonAnimation.h"
 #include "BattleMechanics.h"
+#include "PokemonSpawn.h"
 
 #include <cmath>
 #include <iostream>
@@ -32,6 +33,13 @@ void expectNear(float actual, float expected, float tolerance, const std::string
 float horizontalDistance(const glm::vec3 &first, const glm::vec3 &second)
 {
 	return glm::length(glm::vec2(first.x - second.x, first.z - second.z));
+}
+
+glm::vec3 positionRelativeToHeading(const Pokemon &pokemon, float distance)
+{
+	return pokemon.getPos() +
+	       glm::vec3(std::sin(pokemon.getHeading()), 0.0f,
+	                 std::cos(pokemon.getHeading())) * distance;
 }
 
 void testDeterministicSpawnAvoidsPlayerAndFieldEdge()
@@ -68,16 +76,80 @@ void testPokemonSpeciesAssignmentIsStable()
 	           "Eevee has a stable target-feedback name");
 }
 
+void testEcologicalDormancyRemovesInteractionStateAndCanRecover()
+{
+	Pokemon pokemon(0, 0, 912u);
+	pokemon.setPosition(glm::vec3(0.0f));
+	const glm::vec3 nearbyPlayer = positionRelativeToHeading(pokemon, 2.0f);
+	pokemon.update(0.05, nearbyPlayer, {}, 0.0f, true, 0.0f);
+	expectTrue(pokemon.getAlertness() > 0.0f,
+	           "a present Pokemon can build encounter alertness");
+	pokemon.setEcologicallyPresent(false);
+	expectTrue(!pokemon.isEcologicallyPresent() &&
+	               pokemon.getBehaviorState() == PokemonBehaviorState::Idle &&
+	               pokemon.getAlertness() == 0.0f &&
+	               glm::length(pokemon.getVelocity()) == 0.0f,
+	           "ecological dormancy clears interaction and movement state");
+	const PokemonBehaviorEvents dormantEvents =
+		pokemon.update(0.05, nearbyPlayer, {}, 1.0f, true, 0.0f);
+	expectTrue(!dormantEvents.alertStarted && !dormantEvents.attackReady,
+	           "a dormant Pokemon cannot start an encounter");
+	pokemon.setEcologicallyPresent(true);
+	expectTrue(pokemon.isEcologicallyPresent(),
+	           "the same saved Pokemon slot can return in another time band");
+}
+
+void testSpeciesSpawnInTheirDesignedRegions()
+{
+	for (std::uint32_t seed = 1; seed <= 4; ++seed)
+	{
+		for (int index = 0; index < 48; ++index)
+		{
+			const Pokemon pokemon(0, index, seed * 1000u +
+			                                   static_cast<std::uint32_t>(index));
+			const PokemonSpawnArea &area = pokemonSpawnArea(pokemon.getSpecies());
+			const glm::vec3 position = pokemon.getPos();
+			expectTrue(dominantWorldRegion({position.x, position.z}) == area.region,
+			           "ground Pokemon spawn in their species habitat");
+			expectTrue(horizontalDistance(position, glm::vec3(0.0f)) >= 8.0f,
+			           "regional spawning preserves the camp safe radius");
+		}
+		for (int index = 0; index < 8; ++index)
+		{
+			const Pokemon pokemon(1, index, seed * 2000u +
+			                                   static_cast<std::uint32_t>(index));
+			const glm::vec3 position = pokemon.getPos();
+			expectTrue(dominantWorldRegion({position.x, position.z}) ==
+			               WorldRegionKind::RedrockHighlands,
+			           "wild Charizard spawn over Redrock Highlands");
+		}
+	}
+}
+
 void testNearbyPlayerTriggersSmoothFleeMotion()
 {
 	Pokemon pokemon(0, 1, 99u);
 	pokemon.setPosition(glm::vec3(2.0f, 0.0f, 0.0f));
-	const glm::vec3 playerPosition(0.0f);
+	glm::vec3 playerPosition = positionRelativeToHeading(pokemon, 2.0f);
+	pokemon.update(0.05, playerPosition, {}, 0.0f);
+	expectTrue(pokemon.getAlertness() > 0.0f &&
+	               pokemon.getBehaviorState() != PokemonBehaviorState::Flee,
+	           "a first sighting raises alertness without causing instant flight");
+	bool enteredFlee = false;
+	for (int i = 0; i < 40; ++i)
+	{
+		playerPosition = positionRelativeToHeading(pokemon, 2.0f);
+		pokemon.update(0.05, playerPosition, {}, 0.0f);
+		if (pokemon.getBehaviorState() == PokemonBehaviorState::Flee)
+		{
+			enteredFlee = true;
+			break;
+		}
+	}
 	const float startingDistance = horizontalDistance(pokemon.getPos(), playerPosition);
-
-	pokemon.update(0.05, playerPosition);
 	expectTrue(pokemon.getBehaviorState() == PokemonBehaviorState::Flee,
-	           "nearby player switches a ground Pokemon into Flee state");
+	           "sustained nearby vision eventually makes a timid Pokemon flee");
+	expectTrue(enteredFlee, "the flee transition occurs within a bounded observation window");
 	const float firstFrameSpeed = glm::length(pokemon.getVelocity());
 	expectTrue(firstFrameSpeed > 0.0f && firstFrameSpeed < 4.2f,
 	           "flee movement accelerates instead of jumping to full speed");
@@ -96,20 +168,28 @@ void testTerritorialUmbreonAlertsBeforePursuit()
 {
 	Pokemon pokemon(0, 2, 99u);
 	pokemon.setPosition(glm::vec3(8.0f, 0.0f, 0.0f));
-	const glm::vec3 playerPosition(0.0f);
+	const glm::vec3 playerPosition = positionRelativeToHeading(pokemon, 6.0f);
 	const float startingDistance = horizontalDistance(pokemon.getPos(), playerPosition);
 
-	const PokemonBehaviorEvents firstUpdate = pokemon.update(0.05, playerPosition);
+	PokemonBehaviorEvents alertEvents;
+	for (int i = 0; i < 30 &&
+	                pokemon.getBehaviorState() != PokemonBehaviorState::Alert; ++i)
+	{
+		const PokemonBehaviorEvents events =
+			pokemon.update(0.05, playerPosition, {}, 0.0f);
+		alertEvents.alertStarted = alertEvents.alertStarted || events.alertStarted;
+	}
 	expectTrue(pokemon.getBehaviorState() == PokemonBehaviorState::Alert,
-	           "nearby player puts a territorial Umbreon on alert");
-	expectTrue(firstUpdate.alertStarted && !firstUpdate.attackReady,
+	           "sustained vision puts a territorial Umbreon on alert");
+	expectTrue(alertEvents.alertStarted && !alertEvents.attackReady,
 	           "entering alert emits one warning before any attack");
 	expectNear(glm::length(pokemon.getVelocity()), 0.0f, 0.0001f,
 	           "Umbreon pauses during its initial warning");
 
-	for (int i = 0; i < 22; ++i)
+	for (int i = 0; i < 50 &&
+	                pokemon.getBehaviorState() != PokemonBehaviorState::Pursue; ++i)
 	{
-		pokemon.update(0.05, playerPosition);
+		pokemon.update(0.05, playerPosition, {}, 0.0f);
 	}
 	expectTrue(pokemon.getBehaviorState() == PokemonBehaviorState::Pursue,
 	           "Umbreon pursues after its warning window");
@@ -122,12 +202,13 @@ void testTerritorialUmbreonAlertsBeforePursuit()
 void testTerritorialUmbreonAttackUsesCooldown()
 {
 	Pokemon pokemon(0, 2, 199u);
-	pokemon.setPosition(glm::vec3(4.5f, 0.0f, 0.0f));
-	const glm::vec3 playerPosition(0.0f);
+	pokemon.setPosition(glm::vec3(0.0f));
+	const glm::vec3 playerPosition = positionRelativeToHeading(pokemon, 4.5f);
 	bool attackReady = false;
-	for (int i = 0; i < 30; ++i)
+	for (int i = 0; i < 70; ++i)
 	{
-		attackReady = pokemon.update(0.05, playerPosition).attackReady || attackReady;
+		attackReady = pokemon.update(0.05, playerPosition, {}, 0.0f).attackReady ||
+		              attackReady;
 	}
 	expectTrue(attackReady,
 	           "Umbreon signals an attack after warning a player in range");
@@ -139,7 +220,7 @@ void testTerritorialUmbreonAttackUsesCooldown()
 	for (int i = 0; i < 24; ++i)
 	{
 		attackedDuringCooldown =
-		    pokemon.update(0.05, playerPosition).attackReady ||
+		    pokemon.update(0.05, playerPosition, {}, 0.0f).attackReady ||
 		    attackedDuringCooldown;
 	}
 	expectTrue(!attackedDuringCooldown,
@@ -149,21 +230,94 @@ void testTerritorialUmbreonAttackUsesCooldown()
 	for (int i = 0; i < 30; ++i)
 	{
 		attackedAfterCooldown =
-		    pokemon.update(0.05, playerPosition).attackReady ||
+		    pokemon.update(0.05, playerPosition, {}, 0.0f).attackReady ||
 		    attackedAfterCooldown;
 	}
 	expectTrue(attackedAfterCooldown,
 	           "Umbreon can attack again after its cooldown expires");
 }
 
+void testAerialCharizardSignalsWingAttackAndUsesCooldown()
+{
+	Pokemon pokemon(1, 0, 219u);
+	pokemon.setPosition(glm::vec3(0.0f, 20.0f, 0.0f));
+	glm::vec3 playerPosition = positionRelativeToHeading(pokemon, 14.0f);
+	playerPosition.y = 20.0f;
+
+	bool alertStarted = false;
+	bool attackReady = false;
+	for (int i = 0; i < 120 && !attackReady; ++i)
+	{
+		const PokemonBehaviorEvents events =
+			pokemon.update(0.05, playerPosition, {}, 0.0f);
+		alertStarted = alertStarted || events.alertStarted;
+		attackReady = attackReady || events.attackReady;
+	}
+	expectTrue(alertStarted,
+	           "aerial Charizard warns the player before lining up an attack");
+	expectTrue(attackReady,
+	           "aerial Charizard signals Wing Attack inside its engagement band");
+	expectTrue(pokemon.getBehaviorState() == PokemonBehaviorState::Pursue,
+	           "aerial Charizard stays engaged while attacking");
+	expectTrue(glm::length(pokemon.getVelocity()) <= 3.2001f,
+	           "aerial pursuit stays under its configured speed cap");
+
+	pokemon.coolDownAfterAttack();
+	expectTrue(pokemon.getBehaviorState() == PokemonBehaviorState::Alert,
+	           "aerial Charizard returns to a watchful cooldown after attacking");
+	bool attackedDuringCooldown = false;
+	for (int i = 0; i < 40; ++i)
+	{
+		attackedDuringCooldown =
+			pokemon.update(0.05, playerPosition, {}, 0.0f).attackReady ||
+			attackedDuringCooldown;
+	}
+	expectTrue(!attackedDuringCooldown,
+	           "aerial Charizard cannot immediately repeat Wing Attack");
+
+	bool attackedAfterCooldown = false;
+	for (int i = 0; i < 60; ++i)
+	{
+		attackedAfterCooldown =
+			pokemon.update(0.05, playerPosition, {}, 0.0f).attackReady ||
+			attackedAfterCooldown;
+	}
+	expectTrue(attackedAfterCooldown,
+	           "aerial Charizard can attack again after its cooldown expires");
+}
+
+void testAerialCharizardRequiresVerticalAttackAlignment()
+{
+	Pokemon pokemon(1, 0, 319u);
+	pokemon.setPosition(glm::vec3(0.0f, 20.0f, 0.0f));
+	glm::vec3 playerPosition = positionRelativeToHeading(pokemon, 14.0f);
+	playerPosition.y = 0.0f;
+
+	bool attackReady = false;
+	for (int i = 0; i < 140; ++i)
+	{
+		attackReady = pokemon.update(0.05, playerPosition, {}, 0.0f).attackReady ||
+		              attackReady;
+	}
+	expectTrue(!attackReady,
+	           "aerial Charizard does not launch Wing Attack across a large altitude gap");
+}
+
 void testTerritorialUmbreonDisengagesAndCanBeStartled()
 {
 	Pokemon pokemon(0, 2, 299u);
-	pokemon.setPosition(glm::vec3(8.0f, 0.0f, 0.0f));
-	pokemon.update(0.05, glm::vec3(0.0f));
-	pokemon.update(0.05, glm::vec3(40.0f, 0.0f, 40.0f));
+	pokemon.setPosition(glm::vec3(0.0f));
+	const glm::vec3 nearbyPlayer = positionRelativeToHeading(pokemon, 5.0f);
+	for (int i = 0; i < 45 && !pokemon.isThreatening(); ++i)
+	{
+		pokemon.update(0.05, nearbyPlayer, {}, 0.0f);
+	}
+	for (int i = 0; i < 140 && pokemon.isThreatening(); ++i)
+	{
+		pokemon.update(0.05, glm::vec3(40.0f, 0.0f, 40.0f), {}, 0.0f);
+	}
 	expectTrue(!pokemon.isThreatening(),
-	           "Umbreon disengages when the player leaves its territory");
+	           "Umbreon disengages after alertness decays outside its territory");
 
 	pokemon.setPosition(glm::vec3(4.0f, 0.0f, 0.0f));
 	pokemon.update(0.05, glm::vec3(0.0f));
@@ -229,17 +383,81 @@ void testFleeStateReturnsToWanderAfterReachingSafety()
 {
 	Pokemon pokemon(0, 3, 123u);
 	pokemon.setPosition(glm::vec3(2.0f, 0.0f, 0.0f));
-	pokemon.update(0.05, glm::vec3(0.0f));
+	pokemon.startle();
 	expectTrue(pokemon.getBehaviorState() == PokemonBehaviorState::Flee,
 	           "test setup enters Flee state");
 
 	const glm::vec3 distantPlayer(40.0f, 0.0f, 40.0f);
-	for (int i = 0; i < 80; ++i)
+	for (int i = 0; i < 100; ++i)
 	{
 		pokemon.update(0.05, distantPlayer);
 	}
 	expectTrue(pokemon.getBehaviorState() != PokemonBehaviorState::Flee,
 	           "Pokemon leaves Flee state after the threat is gone");
+}
+
+void testViewConeHearingAndAlertDecayDriveBehavior()
+{
+	Pokemon pokemon(0, 1, 456u);
+	pokemon.setPosition(glm::vec3(0.0f));
+	for (int i = 0; i < 20; ++i)
+	{
+		pokemon.update(
+			0.05, positionRelativeToHeading(pokemon, -4.0f), {}, 0.0f);
+	}
+	expectNear(pokemon.getAlertness(), 0.0f, 0.0001f,
+	           "a quiet player behind a Pokemon remains outside its view cone");
+	expectTrue(!pokemon.canSeePlayer() && !pokemon.canHearPlayer(),
+	           "quiet rear approach produces no visual or hearing stimulus");
+
+	for (int i = 0; i < 20; ++i)
+	{
+		pokemon.update(
+			0.05, positionRelativeToHeading(pokemon, -3.0f), {}, 1.0f);
+	}
+	expectTrue(pokemon.getAlertness() > 0.20f && pokemon.canHearPlayer(),
+	           "nearby rear movement raises alertness through hearing");
+	const float raisedAlertness = pokemon.getAlertness();
+	for (int i = 0; i < 20; ++i)
+	{
+		pokemon.update(0.05, glm::vec3(40.0f, 0.0f, 40.0f), {}, 0.0f);
+	}
+	expectTrue(pokemon.getAlertness() < raisedAlertness,
+	           "alertness decays when sight and sound stimuli disappear");
+}
+
+void testWorldOcclusionBlocksSightButKeepsHearing()
+{
+	Pokemon pokemon(0, 1, 456u);
+	pokemon.setPosition(glm::vec3(0.0f));
+	for (int i = 0; i < 30; ++i)
+	{
+		pokemon.update(
+			0.05, positionRelativeToHeading(pokemon, 4.0f), {}, 0.0f, false);
+	}
+	expectNear(pokemon.getAlertness(), 0.0f, 0.0001f,
+	           "terrain cover prevents a quiet player from raising alertness");
+	expectTrue(!pokemon.canSeePlayer(),
+	           "an occluded player is not reported as visible");
+	pokemon.update(
+		0.05, positionRelativeToHeading(pokemon, 4.0f), {}, 1.0f, false);
+	expectTrue(!pokemon.canSeePlayer() && pokemon.canHearPlayer() &&
+	               pokemon.getAlertness() > 0.0f,
+	           "nearby movement remains audible through visual cover");
+}
+
+void testCompanionAlertMakesTimidPokemonFlee()
+{
+	Pokemon bulbasaur(0, 1, 789u);
+	bulbasaur.setPosition(glm::vec3(0.0f));
+	bulbasaur.receiveCompanionAlert();
+	const glm::vec3 distantPlayer(40.0f, 0.0f, 40.0f);
+	bulbasaur.update(0.05, distantPlayer, {}, 0.0f, false);
+	expectTrue(bulbasaur.getBehaviorState() == PokemonBehaviorState::Alert,
+	           "a timid companion pauses in alert before fleeing");
+	bulbasaur.update(0.05, distantPlayer, {}, 0.0f, false);
+	expectTrue(bulbasaur.getBehaviorState() == PokemonBehaviorState::Flee,
+	           "a sustained companion warning makes a timid Pokemon flee");
 }
 
 void testGroundPokemonNavigationResolvesVisibleBlockers()
@@ -253,6 +471,53 @@ void testGroundPokemonNavigationResolvesVisibleBlockers()
 	const glm::vec3 position = pokemon.getPos();
 	expectTrue(glm::length(glm::vec2(position.x, position.z)) >= 1.43f,
 	           "ground Pokemon are separated from a visible navigation blocker");
+}
+
+void testInvestigationDestinationOverridesExpiredWanderTimer()
+{
+	Pokemon eevee(0, 3, 123u);
+	eevee.setPosition(glm::vec3(0.0f));
+	const glm::vec3 lurePosition(10.0f, 0.0f, 0.0f);
+	const float startingDistance = horizontalDistance(eevee.getPos(), lurePosition);
+	eevee.investigateAt(lurePosition.x, lurePosition.y, lurePosition.z);
+	eevee.update(0.05, glm::vec3(40.0f, 0.0f, 40.0f), {}, 0.0f);
+	expectTrue(horizontalDistance(eevee.getPos(), lurePosition) < startingDistance &&
+	               eevee.getVelocity().x > 0.0f,
+	           "a fresh lure investigation wins over an expired random wander timer");
+}
+
+void testUmbreonPerceptionUsesTheWorldDaylightProfile()
+{
+	Pokemon daytime(0, 0, 2468u);
+	Pokemon nighttime(0, 0, 2468u);
+	daytime.setPosition(glm::vec3(0.0f));
+	nighttime.setPosition(glm::vec3(0.0f));
+	const glm::vec3 playerPosition = positionRelativeToHeading(daytime, 13.0f);
+	daytime.update(0.05, playerPosition, {}, 0.0f, true, 1.0f);
+	nighttime.update(0.05, playerPosition, {}, 0.0f, true, 0.0f);
+	expectTrue(!daytime.canSeePlayer() && nighttime.canSeePlayer(),
+	           "Umbreon territory is observably wider at night than in daylight");
+	expectTrue(nighttime.getAlertness() > daytime.getAlertness(),
+	           "nighttime Umbreon begins building alertness at the wider boundary");
+}
+
+void testEeveeWanderSpeedUsesTheWorldDaylightProfile()
+{
+	Pokemon daytime(0, 3, 1357u);
+	Pokemon nighttime(0, 3, 1357u);
+	daytime.setPosition(glm::vec3(0.0f));
+	nighttime.setPosition(glm::vec3(0.0f));
+	for (int step = 0; step < 12; ++step)
+	{
+		daytime.investigateAt(20.0f, 0.0f, 0.0f);
+		nighttime.investigateAt(20.0f, 0.0f, 0.0f);
+		daytime.update(0.05, glm::vec3(40.0f), {}, 0.0f, false, 1.0f);
+		nighttime.update(0.05, glm::vec3(40.0f), {}, 0.0f, false, 0.0f);
+	}
+	const float daytimeSpeed = glm::length(daytime.getVelocity());
+	const float nighttimeSpeed = glm::length(nighttime.getVelocity());
+	expectTrue(daytimeSpeed > nighttimeSpeed + 0.3f,
+	           "Eevee visibly wanders faster by day than at night");
 }
 
 void testLargeFrameIsClampedAndCaughtPokemonStops()
@@ -372,14 +637,24 @@ int main()
 {
 	testDeterministicSpawnAvoidsPlayerAndFieldEdge();
 	testPokemonSpeciesAssignmentIsStable();
+	testEcologicalDormancyRemovesInteractionStateAndCanRecover();
+	testSpeciesSpawnInTheirDesignedRegions();
 	testNearbyPlayerTriggersSmoothFleeMotion();
 	testTerritorialUmbreonAlertsBeforePursuit();
 	testTerritorialUmbreonAttackUsesCooldown();
+	testAerialCharizardSignalsWingAttackAndUsesCooldown();
+	testAerialCharizardRequiresVerticalAttackAlignment();
 	testTerritorialUmbreonDisengagesAndCanBeStartled();
 	testStartleForcesAFieldPokemonToFlee();
 	testHealthDamageFaintingAndRestore();
 	testFleeStateReturnsToWanderAfterReachingSafety();
+	testViewConeHearingAndAlertDecayDriveBehavior();
+	testWorldOcclusionBlocksSightButKeepsHearing();
+	testCompanionAlertMakesTimidPokemonFlee();
 	testGroundPokemonNavigationResolvesVisibleBlockers();
+	testInvestigationDestinationOverridesExpiredWanderTimer();
+	testUmbreonPerceptionUsesTheWorldDaylightProfile();
+	testEeveeWanderSpeedUsesTheWorldDaylightProfile();
 	testLargeFrameIsClampedAndCaughtPokemonStops();
 	testFlyingPokemonStaysWithinFlightBand();
 	testAnimationPhaseFollowsLocomotion();

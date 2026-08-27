@@ -15,6 +15,11 @@ void incrementBounded(int &value)
 {
 	value = std::min(MAX_RECORDED_EVENTS, std::max(0, value) + 1);
 }
+
+void recordOnce(int &value)
+{
+	value = 1;
+}
 }
 
 bool ResearchObjectiveProgress::complete() const
@@ -57,6 +62,31 @@ void recordSafeLanding(ResearchMissionProgress &progress)
 	incrementBounded(progress.safeLandings);
 }
 
+void recordHealthyEeveeCapture(ResearchMissionProgress &progress)
+{
+	incrementBounded(progress.healthyEeveeCaptures);
+}
+
+void recordBulbasaurFleeObservation(ResearchMissionProgress &progress)
+{
+	incrementBounded(progress.bulbasaurFleeObservations);
+}
+
+void recordUmbreonWarningObservation(ResearchMissionProgress &progress)
+{
+	incrementBounded(progress.umbreonWarningObservations);
+}
+
+void recordMoonshadowTrackSurvey(ResearchMissionProgress &progress)
+{
+	recordOnce(progress.moonshadowTrackSurveys);
+}
+
+void recordRedrockLookoutSurvey(ResearchMissionProgress &progress)
+{
+	recordOnce(progress.redrockLookoutSurveys);
+}
+
 ResearchMissionSnapshot makeResearchMissionSnapshot(
 	int caughtCount, int defeatedCount,
 	const ResearchMissionProgress &progress, int captureGoal)
@@ -64,6 +94,20 @@ ResearchMissionSnapshot makeResearchMissionSnapshot(
 	const int safeCaptureGoal = std::max(1, captureGoal);
 	ResearchMissionSnapshot snapshot;
 	snapshot.objectives = {{
+		{ResearchObjectiveId::HealthyEeveeCapture, "Catch an unhurt Eevee",
+		 boundedProgress(progress.healthyEeveeCaptures, 1), 1, false},
+		{ResearchObjectiveId::BulbasaurFleeObservation,
+		 "Observe Bulbasaur flee",
+		 boundedProgress(progress.bulbasaurFleeObservations, 1), 1, false},
+		{ResearchObjectiveId::UmbreonWarningObservation,
+		 "Observe Umbreon's warning",
+		 boundedProgress(progress.umbreonWarningObservations, 1), 1, false},
+		{ResearchObjectiveId::MoonshadowTrackSurvey,
+		 "Record Moonshadow tracks at night",
+		 boundedProgress(progress.moonshadowTrackSurveys, 1), 1, false},
+		{ResearchObjectiveId::RedrockLookoutSurvey,
+		 "Survey the Redrock lookout",
+		 boundedProgress(progress.redrockLookoutSurveys, 1), 1, false},
 		{ResearchObjectiveId::SuperEffectiveHit, "Land a super-effective hit",
 		 boundedProgress(progress.superEffectiveHits, 1), 1, false},
 		{ResearchObjectiveId::DefeatWildPokemon, "Defeat a wild Pokemon",

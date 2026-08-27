@@ -1,6 +1,7 @@
 #include "CaptureMechanics.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace
 {
@@ -50,11 +51,38 @@ float calculateCaptureProbability(const CaptureAttempt &attempt)
 	const float alignmentMultiplier = 0.82f + alignment * 0.18f;
 	const float healthRatio = clampValue(attempt.healthRatio, 0.0f, 1.0f);
 	const float healthMultiplier = 0.85f + (1.0f - healthRatio) * 0.50f;
+	const float alertness = clampValue(attempt.alertness, 0.0f, 1.0f);
+	const float alertnessMultiplier = 1.08f - alertness * 0.38f;
+	const float backHitMultiplier = attempt.backHit ? 1.18f : 1.0f;
+	const float lureMultiplier = attempt.lured ? 1.14f : 1.0f;
+	const float difficultyMultiplier =
+		clampValue(attempt.difficultyMultiplier, 0.10f, 1.0f);
 	const float probability = speciesBaseProbability(attempt.species) *
 	                          distanceMultiplier * alignmentMultiplier *
 	                          activityMultiplier(attempt.activity) *
-	                          healthMultiplier;
+	                          healthMultiplier * alertnessMultiplier *
+	                          backHitMultiplier * lureMultiplier *
+	                          difficultyMultiplier;
 	return clampValue(probability, 0.12f, 0.95f);
+}
+
+bool isCaptureBackHit(float targetHeading,
+	                  float targetToThrowerX,
+	                  float targetToThrowerZ)
+{
+	const float directionLength = std::sqrt(
+		targetToThrowerX * targetToThrowerX +
+		targetToThrowerZ * targetToThrowerZ);
+	if (directionLength <= 0.0001f)
+	{
+		return false;
+	}
+	const float forwardX = std::sin(targetHeading);
+	const float forwardZ = std::cos(targetHeading);
+	const float facingDot =
+		forwardX * targetToThrowerX / directionLength +
+		forwardZ * targetToThrowerZ / directionLength;
+	return facingDot <= -0.35f;
 }
 
 CaptureResult resolveCaptureAttempt(const CaptureAttempt &attempt,

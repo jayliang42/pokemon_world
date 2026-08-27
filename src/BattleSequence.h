@@ -1,11 +1,14 @@
 #pragma once
 
+#include "BattleMechanics.h"
+
 enum class BattlePhase
 {
 	Inactive,
 	PlayerWindup,
 	PlayerProjectile,
 	TargetImpact,
+	PlayerRecovery,
 	WildWindup,
 	WildProjectile,
 	PlayerImpact,
@@ -17,6 +20,9 @@ struct BattleSequencePlan
 {
 	bool playerAttackEnabled = true;
 	bool counterEnabled = true;
+	bool playerAttackHit = true;
+	BattleMoveTiming playerTiming;
+	BattleMoveTiming counterTiming;
 };
 
 struct BattleSequenceSample
@@ -34,3 +40,5 @@ struct BattleSequenceSample
 float battleSequenceDuration(const BattleSequencePlan &plan);
 BattleSequenceSample sampleBattleSequence(const BattleSequencePlan &plan,
 	                                        float elapsedSeconds);
+float battleMovementScale(const BattleSequencePlan &plan,
+	                      const BattleSequenceSample &sample);

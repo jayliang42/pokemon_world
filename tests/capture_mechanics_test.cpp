@@ -1,4 +1,5 @@
 #include "CaptureMechanics.h"
+#include "AlphaNest.h"
 
 #include <cmath>
 #include <iostream>
@@ -80,6 +81,57 @@ void testLowHealthImprovesCaptureProbability()
 	           "weakening a Pokemon increases its capture probability");
 }
 
+void testAlphaEncounterSupportsRiskyAndWeakenedCaptureStrategies()
+{
+	CaptureAttempt direct = standardAttempt(PokemonSpecies::Charizard);
+	direct.healthRatio = 1.0f;
+	direct.difficultyMultiplier = ALPHA_CAPTURE_DIFFICULTY_MULTIPLIER;
+	CaptureAttempt weakened = direct;
+	weakened.healthRatio = 0.12f;
+	const float directChance = calculateCaptureProbability(direct);
+	const float weakenedChance = calculateCaptureProbability(weakened);
+	expectTrue(directChance >= 0.12f && weakenedChance > directChance,
+	           "Alpha Charizard permits a risky direct throw and rewards battle weakening");
+}
+
+void testAlertnessAndBackHitChangeCaptureProbability()
+{
+	CaptureAttempt calm = standardAttempt(PokemonSpecies::Umbreon);
+	calm.alertness = 0.0f;
+	CaptureAttempt alert = calm;
+	alert.alertness = 1.0f;
+	expectTrue(calculateCaptureProbability(calm) >
+	               calculateCaptureProbability(alert),
+	           "a fully alert Pokemon is harder to catch than a calm one");
+
+	CaptureAttempt backHit = alert;
+	backHit.backHit = true;
+	expectTrue(calculateCaptureProbability(backHit) >
+	               calculateCaptureProbability(alert),
+	           "a back hit improves the capture chance for the same target state");
+}
+
+void testActiveLureImprovesCaptureProbability()
+{
+	CaptureAttempt normal = standardAttempt(PokemonSpecies::Eevee);
+	normal.distance = 4.0f;
+	CaptureAttempt lured = normal;
+	lured.lured = true;
+	expectTrue(calculateCaptureProbability(lured) >
+	               calculateCaptureProbability(normal),
+	           "a Pokemon feeding inside the lure zone gains a capture bonus");
+}
+
+void testBackHitUsesTargetFacingAndThrowOrigin()
+{
+	expectTrue(isCaptureBackHit(0.0f, 0.0f, -5.0f),
+	           "a thrower behind a target facing positive Z earns a back hit");
+	expectTrue(!isCaptureBackHit(0.0f, 0.0f, 5.0f),
+	           "a thrower in front of the target does not earn a back hit");
+	expectTrue(!isCaptureBackHit(0.0f, 5.0f, 0.0f),
+	           "a thrower directly beside the target does not earn a back hit");
+}
+
 void testProbabilityClampsInvalidExtremes()
 {
 	CaptureAttempt attempt = standardAttempt(PokemonSpecies::Bulbasaur);
@@ -133,6 +185,10 @@ int main()
 	testSpeciesHaveDistinctCaptureDifficulty();
 	testDistanceAimAndActivityMatter();
 	testLowHealthImprovesCaptureProbability();
+	testAlphaEncounterSupportsRiskyAndWeakenedCaptureStrategies();
+	testAlertnessAndBackHitChangeCaptureProbability();
+	testActiveLureImprovesCaptureProbability();
+	testBackHitUsesTargetFacingAndThrowOrigin();
 	testProbabilityClampsInvalidExtremes();
 	testResolutionMapsSuccessAndNearMissShakes();
 	testCaptureRandomIsDeterministicAndBounded();

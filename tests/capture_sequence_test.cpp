@@ -40,6 +40,8 @@ CaptureResult result(bool captured, int shakes)
 void testThrowAndAbsorbPhasesControlVisibility()
 {
 	const CaptureResult success = result(true, 3);
+	expectNear(captureThrowFlightPhaseDuration(), 0.55f, 0.0001f,
+	           "the physical projectile can hand off at the absorb boundary");
 	const CaptureSequenceSample inactive = sampleCaptureSequence(success, -0.1f);
 	const CaptureSequenceSample throwMidpoint = sampleCaptureSequence(success, 0.275f);
 	const CaptureSequenceSample absorbing = sampleCaptureSequence(success, 0.60f);

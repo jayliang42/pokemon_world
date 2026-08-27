@@ -20,9 +20,54 @@ if(EMSCRIPTEN)
 endif()
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
+  add_executable(alpha_nest_tests
+      tests/alpha_nest_test.cpp
+      src/AlphaNest.cpp)
+  target_include_directories(alpha_nest_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src")
+  add_test(NAME pokemon_alpha_nest COMMAND alpha_nest_tests)
+
+  add_executable(regional_research_tests
+      tests/regional_research_test.cpp
+      src/RegionalResearch.cpp)
+  target_include_directories(regional_research_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME pokemon_regional_research COMMAND regional_research_tests)
+
+  add_executable(resource_locator_tests
+      tests/resource_locator_test.cpp
+      src/ResourceLocator.cpp)
+  target_include_directories(resource_locator_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src")
+  add_test(NAME pokemon_resource_locator COMMAND resource_locator_tests)
+
+  add_executable(capture_projectile_tests
+      tests/capture_projectile_test.cpp
+      src/CaptureProjectile.cpp)
+  target_include_directories(capture_projectile_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME pokemon_capture_projectile COMMAND capture_projectile_tests)
+
+  add_executable(hud_telemetry_tests
+      tests/hud_telemetry_test.cpp
+      src/HudTelemetry.cpp)
+  target_include_directories(hud_telemetry_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src")
+  add_test(NAME hud_telemetry_contract COMMAND hud_telemetry_tests)
+
+  add_executable(game_session_tests
+      tests/game_session_test.cpp
+      src/GameSession.cpp)
+  target_include_directories(game_session_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src")
+  add_test(NAME game_session_fixed_timestep COMMAND game_session_tests)
+
   add_executable(player_controller_tests
       tests/player_controller_test.cpp
-      src/PlayerController.cpp)
+      src/PlayerController.cpp
+      src/PokemonAnimation.cpp)
   target_include_directories(player_controller_tests PRIVATE
       "${CMAKE_SOURCE_DIR}/src"
       "${CMAKE_SOURCE_DIR}/ext/glm/include")
@@ -45,15 +90,77 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 
   add_executable(pokemon_behavior_tests
       tests/pokemon_behavior_test.cpp
-	  src/BattleMechanics.cpp
+      src/BattleMechanics.cpp
       src/Pokemon.cpp
+      src/PokemonEcology.cpp
+      src/PokemonPerception.cpp
       src/PokemonNavigation.cpp
       src/PokemonAnimation.cpp
-      src/PokemonSpecies.cpp)
+      src/PokemonSpecies.cpp
+      src/PokemonSpawn.cpp
+      src/WorldRegion.cpp)
   target_include_directories(pokemon_behavior_tests PRIVATE
       "${CMAKE_SOURCE_DIR}/src"
       "${CMAKE_SOURCE_DIR}/ext/glm/include")
   add_test(NAME pokemon_behavior_states COMMAND pokemon_behavior_tests)
+
+  add_executable(pokemon_ecology_tests
+      tests/pokemon_ecology_test.cpp
+      src/PokemonEcology.cpp
+      src/PokemonSpecies.cpp)
+  target_include_directories(pokemon_ecology_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src")
+  add_test(NAME pokemon_day_night_ecology COMMAND pokemon_ecology_tests)
+
+  add_executable(world_simulation_tests
+      tests/world_simulation_test.cpp
+	  src/BattleMechanics.cpp
+      src/FieldCamp.cpp
+      src/Pokemon.cpp
+	  src/PokemonEcology.cpp
+      src/PokemonPerception.cpp
+      src/PokemonNavigation.cpp
+      src/PokemonAnimation.cpp
+      src/PokemonSpecies.cpp
+      src/PokemonSpawn.cpp
+      src/WorldLayout.cpp
+      src/WorldRegion.cpp
+      src/WorldLighting.cpp)
+  target_include_directories(world_simulation_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME pokemon_world_ten_minute_simulation COMMAND world_simulation_tests)
+
+  add_executable(frame_capture_tests
+      tests/frame_capture_test.cpp
+      src/FrameCapture.cpp)
+  target_include_directories(frame_capture_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src")
+  add_test(NAME native_frame_capture_encoding COMMAND frame_capture_tests)
+
+  add_executable(pokemon_perception_tests
+      tests/pokemon_perception_test.cpp
+      src/PokemonPerception.cpp)
+  target_include_directories(pokemon_perception_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME pokemon_perception_model COMMAND pokemon_perception_tests)
+
+  add_executable(pokemon_sightline_tests
+      tests/pokemon_sightline_test.cpp
+      src/PokemonSightline.cpp)
+  target_include_directories(pokemon_sightline_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME pokemon_sightline_occlusion COMMAND pokemon_sightline_tests)
+
+  add_executable(pokemon_group_alert_tests
+      tests/pokemon_group_alert_test.cpp
+      src/PokemonGroupAlert.cpp)
+  target_include_directories(pokemon_group_alert_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME pokemon_group_alert_propagation COMMAND pokemon_group_alert_tests)
 
   add_executable(pokemon_targeting_tests
       tests/pokemon_targeting_test.cpp
@@ -92,6 +199,15 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       "${CMAKE_SOURCE_DIR}/src")
   add_test(NAME pokemon_battle_mechanics COMMAND battle_mechanics_tests)
 
+  add_executable(battle_move_volume_tests
+      tests/battle_move_volume_test.cpp
+      src/BattleMoveVolume.cpp
+      src/CaptureProjectile.cpp)
+  target_include_directories(battle_move_volume_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME pokemon_battle_move_volume COMMAND battle_move_volume_tests)
+
 	add_executable(battle_move_loadout_tests
 	    tests/battle_move_loadout_test.cpp
 	    src/BattleMechanics.cpp
@@ -121,9 +237,46 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       "${CMAKE_SOURCE_DIR}/src")
   add_test(NAME pokemon_research_run_state COMMAND research_run_state_tests)
 
+  add_executable(research_run_simulation_tests
+      tests/research_run_simulation_test.cpp
+      src/BattleMechanics.cpp
+      src/BattleSequence.cpp
+      src/CaptureMechanics.cpp
+      src/CaptureSequence.cpp
+      src/ResearchMission.cpp
+      src/ResearchProgression.cpp
+      src/ResearchRunState.cpp)
+  target_include_directories(research_run_simulation_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src")
+  add_test(NAME pokemon_research_run_simulation COMMAND research_run_simulation_tests)
+
+  add_executable(research_progression_tests
+      tests/research_progression_test.cpp
+      src/ResearchProgression.cpp)
+  target_include_directories(research_progression_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src")
+  add_test(NAME pokemon_research_progression COMMAND research_progression_tests)
+
+  add_executable(field_lure_tests
+      tests/field_lure_test.cpp
+      src/FieldLure.cpp)
+  target_include_directories(field_lure_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME pokemon_field_lure COMMAND field_lure_tests)
+
+  add_executable(field_camp_tests
+      tests/field_camp_test.cpp
+      src/FieldCamp.cpp)
+  target_include_directories(field_camp_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME pokemon_field_camp COMMAND field_camp_tests)
+
   add_executable(game_save_tests
       tests/game_save_test.cpp
-      src/GameSave.cpp)
+      src/GameSave.cpp
+      src/ResearchProgression.cpp)
   target_include_directories(game_save_tests PRIVATE
       "${CMAKE_SOURCE_DIR}/src")
   add_test(NAME pokemon_game_save_codec COMMAND game_save_tests)
@@ -142,6 +295,23 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       "${CMAKE_SOURCE_DIR}/src"
       "${CMAKE_SOURCE_DIR}/ext/glm/include")
   add_test(NAME world_lighting_cycle COMMAND world_lighting_tests)
+
+  add_executable(world_layout_tests
+      tests/world_layout_test.cpp
+      src/WorldLayout.cpp
+      src/WorldRegion.cpp)
+  target_include_directories(world_layout_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME world_landmark_layout COMMAND world_layout_tests)
+
+  add_executable(world_region_tests
+      tests/world_region_test.cpp
+      src/WorldRegion.cpp)
+  target_include_directories(world_region_tests PRIVATE
+      "${CMAKE_SOURCE_DIR}/src"
+      "${CMAKE_SOURCE_DIR}/ext/glm/include")
+  add_test(NAME pokemon_world_region_blending COMMAND world_region_tests)
 
   add_executable(pokemon_navigation_tests
       tests/pokemon_navigation_test.cpp
@@ -162,6 +332,42 @@ include_directories("ext/glad/include")
 
 # Set the executable.
 add_executable(${CMAKE_PROJECT_NAME} ${SOURCES} ${HEADERS} ${GLSL})
+
+# On macOS, keep the existing target name while packaging the same executable
+# and resources as a launchable application bundle. A command-line copy remains
+# at build/final so existing QA commands continue to work.
+if(APPLE AND NOT EMSCRIPTEN)
+  file(GLOB_RECURSE NATIVE_BUNDLE_RESOURCES "${CMAKE_SOURCE_DIR}/resources/*")
+  list(FILTER NATIVE_BUNDLE_RESOURCES EXCLUDE REGEX "/\\.DS_Store$")
+  foreach(BUNDLE_RESOURCE IN LISTS NATIVE_BUNDLE_RESOURCES)
+    file(RELATIVE_PATH BUNDLE_RESOURCE_PATH
+        "${CMAKE_SOURCE_DIR}/resources" "${BUNDLE_RESOURCE}")
+    get_filename_component(BUNDLE_RESOURCE_DIRECTORY
+        "${BUNDLE_RESOURCE_PATH}" DIRECTORY)
+    if(BUNDLE_RESOURCE_DIRECTORY STREQUAL "")
+      set(BUNDLE_PACKAGE_LOCATION "Resources")
+    else()
+      set(BUNDLE_PACKAGE_LOCATION
+          "Resources/${BUNDLE_RESOURCE_DIRECTORY}")
+    endif()
+    set_source_files_properties("${BUNDLE_RESOURCE}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION "${BUNDLE_PACKAGE_LOCATION}"
+        HEADER_FILE_ONLY TRUE)
+  endforeach()
+  target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${NATIVE_BUNDLE_RESOURCES})
+  set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
+      MACOSX_BUNDLE TRUE
+      OUTPUT_NAME "Pokemon World"
+      MACOSX_BUNDLE_BUNDLE_NAME "Pokemon World"
+      MACOSX_BUNDLE_GUI_IDENTIFIER "com.jayliang.pokemon-world"
+      MACOSX_BUNDLE_SHORT_VERSION_STRING "0.4"
+      MACOSX_BUNDLE_BUNDLE_VERSION "0.4")
+  add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "$<TARGET_FILE:${CMAKE_PROJECT_NAME}>"
+          "${CMAKE_CURRENT_BINARY_DIR}/final"
+      COMMENT "Keeping build/final for command-line and QA compatibility")
+endif()
 
 # Helper function included from FindGfxLibs.cmake. Emscripten supplies its
 # browser GLFW port through the linker, while native builds use the existing

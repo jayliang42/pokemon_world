@@ -1,6 +1,7 @@
 #include "GameSave.h"
 
 #include <algorithm>
+#include <limits>
 #include <sstream>
 
 namespace
@@ -81,6 +82,18 @@ bool readField(const std::string &line, const std::string &name,
 	return !value.empty();
 }
 
+bool parseSaveVersion(const std::string &header, int &version)
+{
+	const std::string prefix = "PW_SAVE_V";
+	if (header.compare(0, prefix.size(), prefix) != 0 ||
+	    !parseNonNegativeInt(header.substr(prefix.size()),
+	                         std::numeric_limits<int>::max(), version))
+	{
+		return false;
+	}
+	return header == prefix + std::to_string(version);
+}
+
 bool parsePokemonStates(const std::string &encoded,
 	                    const std::vector<int> &maximumHealth,
 	                    std::vector<GamePokemonSaveState> &states)
@@ -134,6 +147,11 @@ std::string encodePokemonStates(
 }
 }
 
+std::string currentGameSaveHeader()
+{
+	return "PW_SAVE_V" + std::to_string(CURRENT_GAME_SAVE_VERSION);
+}
+
 bool validateGameSave(const GameSaveData &data, const GameSaveLimits &limits,
 	                  std::string *error)
 {
@@ -153,10 +171,30 @@ bool validateGameSave(const GameSaveData &data, const GameSaveLimits &limits,
 	                                           data.flyingPokemon.size()) ||
 	    data.playerHealth < 0 ||
 	    data.playerHealth > limits.playerMaximumHealth ||
+	    (data.researchSubmitted &&
+	     data.caughtCount < limits.captureGoal) ||
+	    data.researchLevel < RESEARCH_LEVEL_TRAINEE ||
+	    data.researchLevel > RESEARCH_LEVEL_OBSERVER ||
+	    data.luresRemaining < 0 ||
+	    data.luresRemaining >
+	        lureCapacityForResearchLevel(data.researchLevel) ||
 	    data.missionProgress.superEffectiveHits < 0 ||
 	    data.missionProgress.superEffectiveHits > MAX_MISSION_EVENT_COUNT ||
 	    data.missionProgress.safeLandings < 0 ||
-	    data.missionProgress.safeLandings > MAX_MISSION_EVENT_COUNT)
+	    data.missionProgress.safeLandings > MAX_MISSION_EVENT_COUNT ||
+	    data.missionProgress.healthyEeveeCaptures < 0 ||
+	    data.missionProgress.healthyEeveeCaptures > MAX_MISSION_EVENT_COUNT ||
+	    data.missionProgress.bulbasaurFleeObservations < 0 ||
+	    data.missionProgress.bulbasaurFleeObservations > MAX_MISSION_EVENT_COUNT ||
+	    data.missionProgress.umbreonWarningObservations < 0 ||
+	    data.missionProgress.umbreonWarningObservations > MAX_MISSION_EVENT_COUNT ||
+	    data.missionProgress.moonshadowTrackSurveys < 0 ||
+	    data.missionProgress.moonshadowTrackSurveys > 1 ||
+	    data.missionProgress.redrockLookoutSurveys < 0 ||
+	    data.missionProgress.redrockLookoutSurveys > 1 ||
+	    (data.alphaNestResolved &&
+	     (data.missionProgress.moonshadowTrackSurveys == 0 ||
+	      data.missionProgress.redrockLookoutSurveys == 0)))
 	{
 		return fail(error, "save counters are out of range");
 	}
@@ -195,7 +233,7 @@ bool validateGameSave(const GameSaveData &data, const GameSaveLimits &limits,
 		return fail(error, "save counters do not match Pokemon state");
 	}
 	const int usedPokeballs = limits.startingPokeballs - data.pokeballs;
-	if (usedPokeballs < data.caughtCount)
+	if (!data.researchSubmitted && usedPokeballs < data.caughtCount)
 	{
 		return fail(error, "captured count exceeds used Poke Balls");
 	}
@@ -210,13 +248,26 @@ std::string encodeGameSave(const GameSaveData &data,
 		return std::string();
 	}
 	std::ostringstream payload;
-	payload << "PW_SAVE_V1\n"
+	payload << currentGameSaveHeader() << '\n'
 	        << "caught=" << data.caughtCount << '\n'
 	        << "balls=" << data.pokeballs << '\n'
 	        << "defeated=" << data.defeatedCount << '\n'
 	        << "player_hp=" << data.playerHealth << '\n'
 	        << "super_hits=" << data.missionProgress.superEffectiveHits << '\n'
 	        << "safe_landings=" << data.missionProgress.safeLandings << '\n'
+	        << "eevee_healthy=" << data.missionProgress.healthyEeveeCaptures << '\n'
+	        << "bulbasaur_flee="
+	        << data.missionProgress.bulbasaurFleeObservations << '\n'
+	        << "umbreon_warning="
+	        << data.missionProgress.umbreonWarningObservations << '\n'
+	        << "research_submitted=" << (data.researchSubmitted ? 1 : 0) << '\n'
+	        << "research_level=" << data.researchLevel << '\n'
+	        << "lures=" << data.luresRemaining << '\n'
+	        << "moonshadow_tracks="
+	        << data.missionProgress.moonshadowTrackSurveys << '\n'
+	        << "redrock_lookout="
+	        << data.missionProgress.redrockLookoutSurveys << '\n'
+	        << "alpha_nest_resolved=" << (data.alphaNestResolved ? 1 : 0) << '\n'
 	        << "ground=" << encodePokemonStates(data.groundPokemon) << '\n'
 	        << "flying=" << encodePokemonStates(data.flyingPokemon);
 	const std::string encoded = payload.str();
@@ -240,22 +291,57 @@ GameSaveParseResult parseGameSave(const std::string &payload,
 	std::vector<std::string> lines;
 	std::istringstream stream(payload);
 	std::string line;
+	if (!std::getline(stream, line) ||
+	    !parseSaveVersion(line, result.sourceVersion))
+	{
+		result.error = "save version header is malformed";
+		return result;
+	}
+	lines.push_back(line);
+	if (result.sourceVersion < 1)
+	{
+		result.versionStatus = GameSaveVersionStatus::UnsupportedOlder;
+		result.error = "legacy save version has no migration path";
+		return result;
+	}
+	if (result.sourceVersion > CURRENT_GAME_SAVE_VERSION)
+	{
+		result.versionStatus = GameSaveVersionStatus::UnsupportedNewer;
+		result.error = "save was created by a newer game version";
+		return result;
+	}
+	result.versionStatus = result.sourceVersion == CURRENT_GAME_SAVE_VERSION
+	                           ? GameSaveVersionStatus::Current
+	                           : GameSaveVersionStatus::Migrated;
+
 	while (std::getline(stream, line))
 	{
 		lines.push_back(line);
-		if (lines.size() > 9)
+		if (lines.size() > 18)
 		{
 			result.error = "save payload has unexpected fields";
 			return result;
 		}
 	}
-	if (lines.size() != 9 || lines[0] != "PW_SAVE_V1")
+	const std::size_t expectedLineCount =
+		result.sourceVersion == 1
+		    ? 9u
+		    : (result.sourceVersion == 2
+		           ? 10u
+		           : (result.sourceVersion == 3
+		                  ? 13u
+		                  : (result.sourceVersion == 4
+		                         ? 15u
+		                         : (result.sourceVersion == 5 ? 17u : 18u))));
+	if (lines.size() != expectedLineCount)
 	{
-		result.error = "unsupported or malformed save version";
+		result.error = "save payload has unexpected fields";
 		return result;
 	}
 
 	std::string value;
+	int researchSubmitted = 0;
+	int alphaNestResolved = 0;
 	if (!readField(lines[1], "caught", value) ||
 	    !parseNonNegativeInt(value, limits.captureGoal, result.data.caughtCount) ||
 	    !readField(lines[2], "balls", value) ||
@@ -276,16 +362,84 @@ GameSaveParseResult parseGameSave(const std::string &payload,
 	    !readField(lines[6], "safe_landings", value) ||
 	    !parseNonNegativeInt(value, MAX_MISSION_EVENT_COUNT,
 	                         result.data.missionProgress.safeLandings) ||
-	    !readField(lines[7], "ground", value) ||
+	    (result.sourceVersion >= 3 &&
+	     (!readField(lines[7], "eevee_healthy", value) ||
+	      !parseNonNegativeInt(
+	          value, MAX_MISSION_EVENT_COUNT,
+	          result.data.missionProgress.healthyEeveeCaptures) ||
+	      !readField(lines[8], "bulbasaur_flee", value) ||
+	      !parseNonNegativeInt(
+	          value, MAX_MISSION_EVENT_COUNT,
+	          result.data.missionProgress.bulbasaurFleeObservations) ||
+	      !readField(lines[9], "umbreon_warning", value) ||
+	      !parseNonNegativeInt(
+	          value, MAX_MISSION_EVENT_COUNT,
+	          result.data.missionProgress.umbreonWarningObservations))) ||
+	    (result.sourceVersion >= 2 &&
+	     (!readField(lines[result.sourceVersion == 2 ? 7 : 10],
+	                 "research_submitted", value) ||
+	      !parseNonNegativeInt(value, 1, researchSubmitted))) ||
+	    (result.sourceVersion >= 4 &&
+	     (!readField(lines[11], "research_level", value) ||
+	      !parseNonNegativeInt(value, RESEARCH_LEVEL_OBSERVER,
+	                           result.data.researchLevel) ||
+	      !readField(lines[12], "lures", value) ||
+	      !parseNonNegativeInt(value, OBSERVER_LURE_CAPACITY,
+	                           result.data.luresRemaining))) ||
+	    (result.sourceVersion >= 5 &&
+	     (!readField(lines[13], "moonshadow_tracks", value) ||
+	      !parseNonNegativeInt(
+	          value, 1,
+	          result.data.missionProgress.moonshadowTrackSurveys) ||
+	      !readField(lines[14], "redrock_lookout", value) ||
+	      !parseNonNegativeInt(
+	          value, 1,
+	          result.data.missionProgress.redrockLookoutSurveys))) ||
+	    (result.sourceVersion >= 6 &&
+	     (!readField(lines[15], "alpha_nest_resolved", value) ||
+	      !parseNonNegativeInt(value, 1, alphaNestResolved))) ||
+	    !readField(lines[result.sourceVersion == 1
+	                         ? 7
+	                         : (result.sourceVersion == 2
+	                                ? 8
+	                                : (result.sourceVersion == 3
+	                                       ? 11
+	                                       : (result.sourceVersion == 4
+	                                              ? 13
+	                                              : (result.sourceVersion == 5
+	                                                     ? 15
+	                                                     : 16))))],
+	               "ground", value) ||
 	    !parsePokemonStates(value, limits.groundMaximumHealth,
 	                        result.data.groundPokemon) ||
-	    !readField(lines[8], "flying", value) ||
+	    !readField(lines[result.sourceVersion == 1
+	                         ? 8
+	                         : (result.sourceVersion == 2
+	                                ? 9
+	                                : (result.sourceVersion == 3
+	                                       ? 12
+	                                       : (result.sourceVersion == 4
+	                                              ? 14
+	                                              : (result.sourceVersion == 5
+	                                                     ? 16
+	                                                     : 17))))],
+	               "flying", value) ||
 	    !parsePokemonStates(value, limits.flyingMaximumHealth,
 	                        result.data.flyingPokemon))
 	{
 		result.error = "save fields are malformed or out of range";
 		return result;
 	}
+	if (result.sourceVersion == 1)
+	{
+		result.data.researchSubmitted =
+			result.data.caughtCount >= limits.captureGoal;
+	}
+	else
+	{
+		result.data.researchSubmitted = researchSubmitted != 0;
+	}
+	result.data.alphaNestResolved = alphaNestResolved != 0;
 	if (!validateGameSave(result.data, limits, &result.error))
 	{
 		return result;

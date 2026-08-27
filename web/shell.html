@@ -56,6 +56,19 @@
       gap: 8px;
     }
 
+    .project-notice {
+      margin: -4px 0 18px;
+      padding: 11px 14px;
+      border: 1px solid rgba(255, 203, 112, 0.3);
+      border-radius: 11px;
+      color: #d7c8aa;
+      background: rgba(74, 48, 17, 0.22);
+      font-size: 0.78rem;
+      line-height: 1.45;
+    }
+
+    .project-notice strong { color: #ffe2a8; }
+
     .save-state {
       display: inline-flex;
       align-items: center;
@@ -265,6 +278,139 @@
       transition: left 120ms ease-out;
     }
 
+    .camp-beacon,
+    .regional-beacon {
+      position: absolute;
+      bottom: 142px;
+      left: 18px;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 9px;
+      width: min(218px, 36%);
+      padding: 8px 10px;
+      border: 1px solid rgba(126, 241, 191, 0.42);
+      border-radius: 11px;
+      color: #d9ffed;
+      background: linear-gradient(145deg, rgba(7, 35, 31, 0.88), rgba(13, 58, 47, 0.72));
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28), 0 0 18px rgba(77, 230, 164, 0.10);
+      backdrop-filter: blur(7px);
+    }
+
+    .camp-beacon[hidden],
+    .regional-beacon[hidden] { display: none; }
+
+    .camp-bearing,
+    .regional-bearing {
+      display: grid;
+      width: 26px;
+      height: 26px;
+      place-items: center;
+      border: 1px solid rgba(170, 255, 216, 0.48);
+      border-radius: 50%;
+      color: #91f2c2;
+      background: rgba(20, 90, 67, 0.42);
+      font-size: 0.88rem;
+      font-weight: 900;
+      transition: transform 120ms ease-out;
+    }
+
+    .camp-label,
+    .regional-label {
+      display: block;
+      color: #93edc0;
+      font-size: 0.58rem;
+      font-weight: 850;
+      letter-spacing: 0.12em;
+    }
+
+    .camp-detail,
+    .regional-detail {
+      display: block;
+      overflow: hidden;
+      margin-top: 2px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .camp-beacon.is-ready {
+      border-color: rgba(255, 216, 104, 0.78);
+      color: #fff4c9;
+      background: linear-gradient(145deg, rgba(53, 39, 9, 0.91), rgba(94, 65, 13, 0.76));
+    }
+
+    .camp-beacon.is-submitted {
+      border-color: rgba(119, 220, 255, 0.58);
+      color: #dbf5ff;
+      background: linear-gradient(145deg, rgba(8, 35, 54, 0.91), rgba(17, 64, 82, 0.76));
+    }
+
+    .regional-beacon {
+      border-color: rgba(115, 211, 255, 0.55);
+      color: #e0f6ff;
+      background: linear-gradient(145deg, rgba(8, 31, 52, 0.92), rgba(19, 59, 82, 0.78));
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28), 0 0 20px rgba(75, 192, 255, 0.14);
+    }
+
+    .regional-bearing {
+      border-color: rgba(139, 229, 255, 0.58);
+      color: #a3e9ff;
+      background: rgba(18, 85, 116, 0.45);
+    }
+
+    .regional-label { color: #9ce9ff; }
+
+    .regional-beacon.is-ready {
+      border-color: rgba(255, 218, 111, 0.82);
+      color: #fff4c8;
+      background: linear-gradient(145deg, rgba(54, 39, 8, 0.94), rgba(91, 64, 13, 0.82));
+    }
+
+    .regional-beacon.is-ready .regional-bearing {
+      border-color: rgba(255, 218, 111, 0.72);
+      color: #fff0ad;
+      background: rgba(111, 78, 15, 0.48);
+    }
+
+    .regional-beacon.is-ready .regional-label { color: #ffe395; }
+
+    .regional-beacon.is-recorded {
+      border-color: rgba(139, 229, 255, 0.7);
+      color: #dff8ff;
+      background: linear-gradient(145deg, rgba(8, 42, 58, 0.94), rgba(14, 78, 89, 0.80));
+    }
+
+    .regional-beacon.is-alpha {
+      border-color: rgba(255, 120, 88, 0.72);
+      color: #ffe4d6;
+      background: linear-gradient(145deg, rgba(57, 13, 24, 0.95), rgba(105, 35, 21, 0.86));
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.34), 0 0 24px rgba(255, 75, 48, 0.22);
+    }
+
+    .regional-beacon.is-alpha .regional-bearing {
+      border-color: rgba(255, 143, 101, 0.78);
+      color: #ffd1b9;
+      background: rgba(118, 34, 24, 0.52);
+    }
+
+	    .regional-beacon.is-alpha .regional-label { color: #ffb38f; }
+
+	    .regional-beacon.is-alpha.is-recorded {
+	      border-color: rgba(139, 229, 255, 0.72);
+	      color: #e5f9ff;
+	      background: linear-gradient(145deg, rgba(8, 42, 58, 0.95), rgba(14, 78, 89, 0.82));
+	      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.30), 0 0 20px rgba(91, 211, 255, 0.18);
+	    }
+
+	    .regional-beacon.is-alpha.is-recorded .regional-bearing {
+	      border-color: rgba(139, 229, 255, 0.68);
+	      color: #bcefff;
+	      background: rgba(18, 85, 116, 0.46);
+	    }
+
+	    .regional-beacon.is-alpha.is-recorded .regional-label { color: #9ce9ff; }
+
     .hud-player.is-dodging,
     .hud-player.is-invulnerable {
       border-color: rgba(116, 226, 255, 0.78);
@@ -276,6 +422,10 @@
     .hud-player.is-cooling #dodge-state { color: #ffd074; }
     .hud-player.is-dodging #dodge-state,
     .hud-player.is-invulnerable #dodge-state { color: #d9f9ff; }
+    .hud-player.has-counter-window #dodge-state {
+      color: #ffe16b;
+      text-shadow: 0 0 12px rgba(255, 196, 54, 0.7);
+    }
 
     .dodge-track {
       height: 3px;
@@ -318,9 +468,19 @@
       letter-spacing: 0.12em;
     }
 
+    #research-heading {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .mission-count {
+      flex: 0 0 auto;
+      margin-left: 4px;
       color: #d7efff;
       letter-spacing: 0.04em;
+      white-space: nowrap;
     }
 
     .mission-row {
@@ -529,6 +689,31 @@
       box-shadow: 0 0 12px rgba(255, 77, 91, 0.5);
     }
 
+    .alert-track {
+      height: 5px;
+      margin-top: 5px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.38);
+    }
+
+    .alert-fill {
+      width: 0;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #70c9ff, #ffd35b, #ff6559);
+      box-shadow: 0 0 10px rgba(255, 180, 76, 0.48);
+      transition: width 120ms linear;
+    }
+
+    .hud-target.is-alerted {
+      border-color: rgba(255, 111, 87, 0.68);
+    }
+
+    .hud-target.has-back-bonus .hud-tag {
+      color: #9bf3c7;
+    }
+
     .status-bar {
       display: flex;
       align-items: center;
@@ -584,6 +769,7 @@
       .header { display: block; }
       .header-badges { justify-content: flex-start; margin-top: 14px; }
       .badge { display: inline-block; }
+      .project-notice { margin-top: 0; }
       .controls { grid-template-columns: 1fr; }
       #canvas { min-height: 220px; }
       .status-bar { align-items: flex-start; flex-direction: column; gap: 4px; }
@@ -591,7 +777,7 @@
       .hud-card { width: min(210px, 48%); padding: 8px 9px 9px; }
       .hud-player { left: 9px; bottom: 9px; }
       .hud-target { right: 9px; top: 9px; }
-      .field-radar { top: 9px; width: min(180px, 40%); padding: 6px 8px; }
+      .field-radar { top: 9px; right: 9px; left: auto; width: min(180px, 40%); padding: 6px 8px; transform: none; }
       .radar-heading { margin-bottom: 4px; font-size: 0.48rem; }
       .threat-alert { top: 76px; min-width: 0; width: 58%; padding: 6px 9px; }
       .threat-icon { width: 18px; height: 18px; flex-basis: 18px; font-size: 0.64rem; }
@@ -602,6 +788,11 @@
       .mission-panel { top: 9px; left: 9px; width: min(195px, 45%); padding: 8px; }
       .mission-heading { font-size: 0.54rem; }
       .mission-row { grid-template-columns: 12px minmax(0, 1fr) auto; gap: 4px; min-height: 20px; font-size: 0.56rem; }
+      .mission-row.mission-detail { display: none; }
+      .camp-beacon, .regional-beacon { top: 9px; right: 9px; bottom: auto; left: auto; width: min(180px, 40%); padding: 6px 8px; }
+      .camp-bearing, .regional-bearing { width: 22px; height: 22px; font-size: 0.72rem; }
+      .camp-label, .regional-label { font-size: 0.48rem; }
+      .camp-detail { font-size: 0.56rem; }
       .move-hud { right: 9px; bottom: 9px; width: 45%; padding: 6px; }
       .move-heading { padding-bottom: 5px; font-size: 0.5rem; }
       #move-hint { display: none; }
@@ -618,7 +809,7 @@
     <header class="header">
       <div>
         <h1>Pokemon World</h1>
-        <p class="subtitle">Battle, weaken, and catch five Pokemon to finish the research assignment.</p>
+        <p class="subtitle">Study species behavior, catch five Pokemon, and return to camp to submit the survey.</p>
       </div>
       <div class="header-badges">
         <div id="save-state" class="badge save-state" role="status">Autosave starting</div>
@@ -628,26 +819,58 @@
       </div>
     </header>
 
+    <p class="project-notice" role="note">
+      <strong>Unofficial educational portfolio project.</strong>
+      Not affiliated with or endorsed by Nintendo, Creatures, GAME FREAK, or
+      The Pokemon Company. The game does not collect personal or gameplay data;
+      autosave progress stays in this browser's local storage.
+    </p>
+
     <section class="game-card">
       <div class="game-stage">
         <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
         <div class="battle-hud" aria-label="Battle status">
           <section class="mission-panel" aria-label="Field research progress">
             <div class="mission-heading">
-              <span>FIELD RESEARCH</span>
-              <span id="mission-count" class="mission-count">0 / 4</span>
+              <span id="research-heading">FIELD · TRAINEE · LURE LOCKED</span>
+              <span id="mission-count" class="mission-count">0 / 9</span>
             </div>
-            <div id="mission-super" class="mission-row">
+            <div id="mission-eevee" class="mission-row">
+              <span class="mission-marker">•</span>
+              <span>Catch an unhurt Eevee</span>
+              <span class="mission-value">0 / 1</span>
+            </div>
+            <div id="mission-bulbasaur" class="mission-row">
+              <span class="mission-marker">•</span>
+              <span>Observe Bulbasaur flee</span>
+              <span class="mission-value">0 / 1</span>
+            </div>
+            <div id="mission-umbreon" class="mission-row">
+              <span class="mission-marker">•</span>
+              <span>Observe Umbreon's warning</span>
+              <span class="mission-value">0 / 1</span>
+            </div>
+            <div id="mission-moonshadow" class="mission-row">
+              <span class="mission-marker">•</span>
+              <span>Record Moonshadow tracks at night</span>
+              <span class="mission-value">0 / 1</span>
+            </div>
+            <div id="mission-redrock" class="mission-row">
+              <span class="mission-marker">•</span>
+              <span>Survey the Redrock lookout</span>
+              <span class="mission-value">0 / 1</span>
+            </div>
+            <div id="mission-super" class="mission-row mission-detail">
               <span class="mission-marker">•</span>
               <span>Land a super-effective hit</span>
               <span class="mission-value">0 / 1</span>
             </div>
-            <div id="mission-defeat" class="mission-row">
+            <div id="mission-defeat" class="mission-row mission-detail">
               <span class="mission-marker">•</span>
               <span>Defeat a wild Pokemon</span>
               <span class="mission-value">0 / 1</span>
             </div>
-            <div id="mission-land" class="mission-row">
+            <div id="mission-land" class="mission-row mission-detail">
               <span class="mission-marker">•</span>
               <span>Complete a gravity landing</span>
               <span class="mission-value">0 / 1</span>
@@ -669,6 +892,20 @@
             <div class="radar-heading"><span>FIELD RADAR</span><span id="radar-contact" class="radar-contact">Scanning</span></div>
             <div class="radar-track" aria-hidden="true"><span id="radar-blip" class="radar-blip"></span></div>
           </section>
+          <section id="camp-beacon" class="camp-beacon" aria-label="Field camp direction" hidden>
+            <span id="camp-bearing" class="camp-bearing" aria-hidden="true">↑</span>
+            <span>
+              <span id="camp-label" class="camp-label">FIELD CAMP</span>
+              <span id="camp-detail" class="camp-detail">At camp · F briefing</span>
+            </span>
+          </section>
+          <section id="regional-beacon" class="regional-beacon" aria-label="Regional research interaction" hidden>
+            <span id="regional-bearing" class="regional-bearing" aria-hidden="true">↑</span>
+            <span>
+              <span id="regional-label" class="regional-label">REGIONAL RESEARCH</span>
+              <span id="regional-detail" class="regional-detail">Move into the marker</span>
+            </span>
+          </section>
           <section id="player-hud" class="hud-card hud-player">
             <div class="hud-heading">
               <span class="hud-name">Charizard</span>
@@ -689,13 +926,19 @@
           <section id="target-hud" class="hud-card hud-target" hidden>
             <div class="hud-heading">
               <span id="target-name" class="hud-name">Wild Pokemon</span>
-              <span class="hud-tag">WILD</span>
+              <span id="target-awareness" class="hud-tag">CALM</span>
             </div>
             <div class="hud-values"><span>HP</span><span id="target-hp-text">—</span></div>
             <div class="hp-track">
               <div id="target-hp-fill" class="hp-fill" role="progressbar"
                    aria-label="Wild Pokemon health" aria-valuemin="0" aria-valuemax="1"
                    aria-valuenow="1"></div>
+            </div>
+            <div class="hud-values"><span>ALERT</span><span id="target-alert-text">0%</span></div>
+            <div class="alert-track">
+              <div id="target-alert-fill" class="alert-fill" role="progressbar"
+                   aria-label="Wild Pokemon alertness" aria-valuemin="0" aria-valuemax="1"
+                   aria-valuenow="0"></div>
             </div>
           </section>
           <section id="move-hud" class="move-hud" aria-label="Charizard moves">
@@ -756,8 +999,9 @@
       <div class="control"><kbd>Z</kbd> Toggle gravity</div>
       <div class="control"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Select a move</div>
       <div class="control"><kbd>X</kbd> Use the selected move</div>
-      <div class="control"><kbd>C</kbd> Catch the locked target</div>
-      <div class="control"><kbd>F</kbd> Return to camp after fainting</div>
+      <div class="control"><kbd>C</kbd> Hold to aim · release to throw</div>
+      <div class="control"><kbd>F</kbd> Inspect regional markers · use camp</div>
+      <div class="control"><kbd>L</kbd> Deploy an Observer field lure</div>
       <div class="control"><kbd>R</kbd> New run (press twice) · <kbd>Esc</kbd> Quit</div>
     </section>
   </main>
@@ -776,16 +1020,33 @@
     const targetName = document.getElementById('target-name');
     const targetHpFill = document.getElementById('target-hp-fill');
     const targetHpText = document.getElementById('target-hp-text');
+    const targetAwareness = document.getElementById('target-awareness');
+    const targetAlertFill = document.getElementById('target-alert-fill');
+    const targetAlertText = document.getElementById('target-alert-text');
     const threatAlert = document.getElementById('threat-alert');
     const threatLabel = document.getElementById('threat-label');
     const threatDetail = document.getElementById('threat-detail');
     const fieldRadar = document.getElementById('field-radar');
     const radarContact = document.getElementById('radar-contact');
     const radarBlip = document.getElementById('radar-blip');
+    const campBeacon = document.getElementById('camp-beacon');
+    const campBearing = document.getElementById('camp-bearing');
+    const campLabel = document.getElementById('camp-label');
+    const campDetail = document.getElementById('camp-detail');
+    const regionalBeacon = document.getElementById('regional-beacon');
+    const regionalBearing = document.getElementById('regional-bearing');
+    const regionalLabel = document.getElementById('regional-label');
+    const regionalDetail = document.getElementById('regional-detail');
     const saveStateElement = document.getElementById('save-state');
     const audioToggle = document.getElementById('audio-toggle');
+    const researchHeading = document.getElementById('research-heading');
     const missionCount = document.getElementById('mission-count');
     const missionRows = [
+      document.getElementById('mission-eevee'),
+      document.getElementById('mission-bulbasaur'),
+      document.getElementById('mission-umbreon'),
+      document.getElementById('mission-moonshadow'),
+      document.getElementById('mission-redrock'),
       document.getElementById('mission-super'),
       document.getElementById('mission-defeat'),
       document.getElementById('mission-land'),
@@ -834,20 +1095,23 @@
       radarBlip.style.left = `${50 + offset}%`;
     }
 
-    function updateMoveSlot(slotIndex, moveName, moveType, movePower,
+    function updateMoveSlot(slotIndex, moveName, moveType, movePower, moveShape, moveRange,
                             remainingSeconds, cooldownFraction, selected, busy) {
       const slot = moveSlots[slotIndex];
       if (!slot) return;
       const remaining = Math.max(0, Number(remainingSeconds) || 0);
       const fraction = Math.max(0, Math.min(1, Number(cooldownFraction) || 0));
       const power = Math.max(1, Number(movePower) || 1);
+      const shape = String(moveShape || 'Narrow').toUpperCase();
+      const range = Math.max(0.1, Number(moveRange) || 1);
       const typeName = Number(moveType) === 3 ? 'FLYING' : 'FIRE';
       slot.classList.toggle('type-fire', typeName === 'FIRE');
       slot.classList.toggle('type-flying', typeName === 'FLYING');
       slot.classList.toggle('is-selected', selected);
       slot.classList.toggle('is-cooling', remaining > 0.01);
       slot.querySelector('.move-name').textContent = moveName || 'Move';
-      slot.querySelector('.move-type').textContent = `${typeName} · PWR ${power}`;
+      slot.querySelector('.move-type').textContent =
+        `${typeName} · PWR ${power} · ${shape} · ${range.toFixed(1)}m`;
       slot.querySelector('.move-state').textContent = remaining > 0.01
         ? `${remaining.toFixed(1)}s`
         : 'READY';
@@ -859,18 +1123,22 @@
     }
 
     function updateDodgeHud(remainingSeconds, cooldownFraction,
-                            dodging, invulnerable) {
+                            counterWindowRemainingSeconds, dodging, invulnerable) {
       const remaining = Math.max(0, Number(remainingSeconds) || 0);
       const fraction = Math.max(0, Math.min(1, Number(cooldownFraction) || 0));
+      const counterRemaining = Math.max(
+        0, Number(counterWindowRemainingSeconds) || 0);
       playerHud.classList.toggle('is-cooling', remaining > 0.01);
       playerHud.classList.toggle('is-dodging', Boolean(dodging));
       playerHud.classList.toggle('is-invulnerable', Boolean(invulnerable));
-      dodgeState.textContent = invulnerable
-        ? 'EVADE'
-        : (dodging ? 'DASH' : (remaining > 0.01
-          ? `${remaining.toFixed(1)}s`
-          : 'SHIFT READY'));
-      const readiness = 1 - fraction;
+      playerHud.classList.toggle('has-counter-window', counterRemaining > 0.01);
+      dodgeState.textContent = counterRemaining > 0.01
+        ? `COUNTER ${counterRemaining.toFixed(1)}s`
+        : (invulnerable ? 'EVADE' : (dodging ? 'DASH' : (remaining > 0.01
+          ? `${remaining.toFixed(1)}s` : 'SHIFT READY')));
+      const readiness = counterRemaining > 0.01
+        ? Math.min(1, counterRemaining / 1.6)
+        : 1 - fraction;
       dodgeFill.style.width = `${readiness * 100}%`;
       dodgeFill.setAttribute('aria-valuenow', readiness.toFixed(3));
     }
@@ -958,9 +1226,22 @@
       } else if (cue === 'wild-alert') {
         scheduleTone(context, now, 185, 132, 0.16, 'sawtooth', 0.026);
         scheduleTone(context, now + 0.11, 220, 148, 0.18, 'square', 0.021);
+      } else if (cue === 'group-alert') {
+        [196, 247, 294].forEach(function (frequency, index) {
+          scheduleTone(context, now + index * 0.07, frequency,
+                       frequency * 0.72, 0.16, 'sawtooth', 0.021);
+        });
       } else if (cue === 'target-impact' || cue === 'player-impact') {
         scheduleNoise(context, now, 0.11, cue === 'player-impact' ? 0.045 : 0.035);
         scheduleTone(context, now, base * 0.7, base * 0.42, 0.12, 'square', 0.026);
+      } else if (cue === 'wild-blocked') {
+        scheduleNoise(context, now, 0.08, 0.022);
+        scheduleTone(context, now, 150, 92, 0.13, 'triangle', 0.045);
+      } else if (cue === 'move-blocked') {
+        scheduleNoise(context, now, 0.09, 0.03);
+        scheduleTone(context, now, base * 0.62, base * 0.35, 0.12, 'square', 0.021);
+      } else if (cue === 'move-miss') {
+        scheduleTone(context, now, base * 1.1, base * 0.58, 0.16, 'triangle', 0.018);
       } else if (cue === 'dodge') {
         scheduleNoise(context, now, 0.10, 0.022);
         scheduleTone(context, now, 430, 940, 0.11, 'triangle', 0.026);
@@ -968,6 +1249,11 @@
         scheduleNoise(context, now, 0.075, 0.016);
         scheduleTone(context, now, 620, 980, 0.09, 'sine', 0.026);
         scheduleTone(context, now + 0.055, 860, 1220, 0.10, 'sine', 0.021);
+      } else if (cue === 'perfect-dodge') {
+        [740, 988, 1318].forEach(function (frequency, index) {
+          scheduleTone(context, now + index * 0.055, frequency,
+                       frequency * 1.08, 0.12, 'sine', 0.026);
+        });
       } else if (cue === 'capture-throw') {
         scheduleTone(context, now, 390, 860, 0.18, 'sine', 0.03);
       } else if (cue === 'capture-hit') {
@@ -981,7 +1267,24 @@
         });
       } else if (cue === 'capture-fail') {
         scheduleTone(context, now, 330, 210, 0.22, 'triangle', 0.032);
-      } else if (cue === 'land') {
+      } else if (cue === 'camp-settlement') {
+        [392, 523, 659, 784].forEach(function (frequency, index) {
+          scheduleTone(context, now + index * 0.09, frequency, frequency * 1.02,
+                       0.20, 'sine', 0.026);
+        });
+      } else if (cue === 'lure-deploy') {
+        scheduleTone(context, now, 440, 660, 0.18, 'sine', 0.024);
+        scheduleTone(context, now + 0.09, 660, 880, 0.22, 'sine', 0.021);
+	      } else if (cue === 'regional-observation') {
+	        [440, 587, 740].forEach(function (frequency, index) {
+	          scheduleTone(context, now + index * 0.065, frequency,
+	                       frequency * 1.05, 0.17, 'sine', 0.024);
+	        });
+	      } else if (cue === 'alpha-awaken') {
+	        scheduleNoise(context, now, 0.34, 0.038);
+	        scheduleTone(context, now, 118, 72, 0.38, 'sawtooth', 0.036);
+	        scheduleTone(context, now + 0.13, 176, 92, 0.42, 'square', 0.024);
+	      } else if (cue === 'land') {
         scheduleNoise(context, now, 0.09, 0.025);
         scheduleTone(context, now, 105, 72, 0.12, 'sine', 0.03);
       }
@@ -1008,58 +1311,137 @@
       onGameStatus: function (text) {
         gameStatusElement.textContent = text || 'Explore the field.';
       },
-      onGameTelemetry: function (text) {
-        telemetryElement.textContent = text || 'No target · Hover · Grounded';
+      onHudTelemetry: function (payload) {
+        if (!payload || typeof payload !== 'object') return;
+        telemetryElement.textContent = payload.summary || 'No target · Hover · Grounded';
+
+        const player = payload.player || {};
+        updateHealthBar(playerHpFill, playerHpText,
+                        player.health, player.maximum);
+
+        const target = payload.target || {};
+        targetHud.hidden = !target.visible;
+        if (target.visible) {
+          targetName.textContent = target.name || 'Wild Pokemon';
+          updateHealthBar(targetHpFill, targetHpText,
+                          target.health, target.maximum);
+          const alertness = Math.max(0, Math.min(1, Number(target.alertness) || 0));
+          const backHitOpportunity = Boolean(target.backHitOpportunity);
+          targetHud.classList.toggle('is-alerted', alertness >= 0.7);
+          targetHud.classList.toggle('has-back-bonus', backHitOpportunity);
+          targetAwareness.textContent = backHitOpportunity
+            ? 'BACK BONUS'
+            : (alertness >= 0.7 ? 'ALERTED' : (alertness >= 0.35 ? 'WATCHING' : 'CALM'));
+          targetAlertFill.style.width = `${alertness * 100}%`;
+          targetAlertFill.setAttribute('aria-valuenow', alertness.toFixed(3));
+          targetAlertText.textContent = `${Math.round(alertness * 100)}%`;
+        }
+
+        const dodge = payload.dodge || {};
+        updateDodgeHud(dodge.remaining, dodge.fraction, dodge.counterRemaining,
+                       Boolean(dodge.dodging), Boolean(dodge.invulnerable));
+
+        const threat = payload.threat || {};
+        threatAlert.hidden = !threat.visible;
+        threatAlert.classList.toggle('is-pursuing', Boolean(threat.pursuing));
+        if (threat.visible) {
+          const safeDistance = Math.max(0, Number(threat.distance) || 0);
+          threatLabel.textContent = threat.pursuing
+            ? 'DANGER · PURSUING'
+            : 'WILD ALERT';
+          threatDetail.textContent = `${threat.name || 'Wild Pokemon'} · ${safeDistance.toFixed(1)}m · ${threat.pursuing ? 'Shift to dodge' : 'Watching you'}`;
+        }
+
+        const radar = payload.radar || {};
+        updateFieldRadar(radar.name, radar.distance, radar.bearing,
+                         Boolean(radar.visible));
+
+        const camp = payload.camp || {};
+        const regional = payload.regional || {};
+        const regionalVisible = Boolean(regional.visible);
+        regionalBeacon.hidden = !regionalVisible;
+        regionalBeacon.classList.toggle('is-ready', Boolean(regional.ready));
+        regionalBeacon.classList.toggle('is-recorded', Boolean(regional.recorded));
+        regionalBeacon.classList.toggle('is-alpha', Boolean(regional.alpha));
+        if (regionalVisible) {
+          const regionalAngle = Math.max(-Math.PI, Math.min(
+            Math.PI, Number(regional.bearing) || 0));
+          const regionalDistance = Math.max(0, Number(regional.distance) || 0);
+          regionalBearing.style.transform = `rotate(${regionalAngle}rad)`;
+          regionalLabel.textContent = String(regional.prompt || 'REGIONAL RESEARCH');
+          regionalDetail.textContent = `${String(regional.name || 'Observation point')} · ${regionalDistance.toFixed(1)}m`;
+        }
+        const campDistance = Math.max(0, Number(camp.distance) || 0);
+        const campAngle = Math.max(-Math.PI, Math.min(
+          Math.PI, Number(camp.bearing) || 0));
+        const campInside = Boolean(camp.inside);
+        const campGrounded = Boolean(camp.grounded);
+        const campReady = Boolean(camp.readyToSubmit);
+        const campSubmitted = Boolean(camp.submitted);
+        const compactHud = window.matchMedia('(max-width: 720px)').matches;
+        campBeacon.hidden = regionalVisible || (compactHud
+          ? !(campReady || campInside || campSubmitted)
+          : false);
+        campBeacon.classList.toggle('is-ready', campReady);
+        campBeacon.classList.toggle('is-submitted', campSubmitted);
+        campBearing.style.transform = `rotate(${campAngle}rad)`;
+        if (campSubmitted) {
+          campLabel.textContent = 'SURVEY SUBMITTED';
+          campDetail.textContent = `Score ${Math.max(0, Number(camp.settlementScore) || 0)} · Supplies ready`;
+        } else if (campReady && campInside && campGrounded) {
+          campLabel.textContent = 'F · SUBMIT RESEARCH';
+          campDetail.textContent = 'Landing confirmed · Field station ready';
+        } else if (campReady) {
+          campLabel.textContent = 'RETURN TO SUBMIT';
+          campDetail.textContent = campInside
+            ? 'Land inside the camp circle'
+            : `${campDistance.toFixed(1)}m · Follow the arrow`;
+        } else if (campInside) {
+          campLabel.textContent = campGrounded ? 'AT CAMP · F BRIEFING' : 'LAND TO ACCESS';
+          campDetail.textContent = 'Safe zone · Field station online';
+        } else {
+          campLabel.textContent = 'FIELD CAMP';
+          campDetail.textContent = `${campDistance.toFixed(1)}m · Safe return point`;
+        }
+
+        const research = payload.research || {};
+        const researchLevel = Math.max(0, Number(research.level) || 0);
+        const researchName = String(research.name || 'Trainee').toUpperCase();
+        const luresRemaining = Math.max(0, Number(research.luresRemaining) || 0);
+        const lureActive = Boolean(research.lureActive);
+        const lureSeconds = Math.max(0, Number(research.lureRemaining) || 0);
+        researchHeading.textContent = lureActive
+          ? `FIELD · ${researchName} · LURE ${Math.ceil(lureSeconds)}s`
+          : (researchLevel >= 1
+              ? `FIELD · ${researchName} · LURES ${luresRemaining}`
+              : 'FIELD · TRAINEE · LURE LOCKED');
+
+        const moves = payload.moves || {};
+        const slots = Array.isArray(moves.slots) ? moves.slots : [];
+        slots.forEach(function (move, slotIndex) {
+          updateMoveSlot(slotIndex, move.name, move.type, move.power,
+                         move.shape, move.range,
+                         move.remaining, move.fraction,
+                         Boolean(move.selected), Boolean(moves.busy));
+        });
+
+        const mission = payload.mission || {};
+        const objectives = Array.isArray(mission.objectives)
+          ? mission.objectives
+          : [];
+        objectives.slice(0, missionRows.length).forEach(function (objective, index) {
+          updateMissionRow(missionRows[index], objective.current, objective.target);
+        });
+        const completed = Math.max(0, Math.min(
+          missionRows.length, Number(mission.completed) || 0));
+        missionCount.textContent = `${completed} / ${missionRows.length}`;
       },
       onSaveState: function (text, available) {
         saveStateElement.textContent = text || (available ? 'Autosave ready' : 'Save unavailable');
         saveStateElement.classList.toggle('is-error', !available);
       },
-      onBattleHud: function (playerHealth, playerMaximum, enemyName,
-                             enemyHealth, enemyMaximum, enemyVisible) {
-        updateHealthBar(playerHpFill, playerHpText, playerHealth, playerMaximum);
-        targetHud.hidden = !enemyVisible;
-        if (enemyVisible) {
-          targetName.textContent = enemyName || 'Wild Pokemon';
-          updateHealthBar(targetHpFill, targetHpText, enemyHealth, enemyMaximum);
-        }
-      },
-      onMoveSlot: function (slotIndex, moveName, moveType, movePower,
-                           remainingSeconds, cooldownFraction, selected, busy) {
-        updateMoveSlot(slotIndex, moveName, moveType, movePower,
-                       remainingSeconds, cooldownFraction, selected, busy);
-      },
-      onDodgeHud: function (remainingSeconds, cooldownFraction,
-                           dodging, invulnerable) {
-        updateDodgeHud(remainingSeconds, cooldownFraction,
-                       dodging, invulnerable);
-      },
-      onThreatHud: function (pokemonName, distance, pursuing, visible) {
-        threatAlert.hidden = !visible;
-        threatAlert.classList.toggle('is-pursuing', Boolean(pursuing));
-        if (visible) {
-          const safeDistance = Math.max(0, Number(distance) || 0);
-          threatLabel.textContent = pursuing ? 'DANGER · PURSUING' : 'WILD ALERT';
-          threatDetail.textContent = `${pokemonName || 'Wild Pokemon'} · ${safeDistance.toFixed(1)}m · ${pursuing ? 'Shift to dodge' : 'Watching you'}`;
-        }
-      },
-      onFieldRadar: function (pokemonName, distance, bearingRadians, visible) {
-        updateFieldRadar(pokemonName, distance, bearingRadians, visible);
-      },
       onGameCue: function (cue, moveType) {
         playGameCue(cue, moveType);
-      },
-      onMissionProgress: function (superCurrent, superTarget,
-                                   defeatCurrent, defeatTarget,
-                                   landingCurrent, landingTarget,
-                                   captureCurrent, captureTarget,
-                                   completedObjectives) {
-        updateMissionRow(missionRows[0], superCurrent, superTarget);
-        updateMissionRow(missionRows[1], defeatCurrent, defeatTarget);
-        updateMissionRow(missionRows[2], landingCurrent, landingTarget);
-        updateMissionRow(missionRows[3], captureCurrent, captureTarget);
-        const completed = Math.max(0, Math.min(4, Number(completedObjectives) || 0));
-        missionCount.textContent = `${completed} / 4`;
       },
       print: function (text) {
         console.log(text);

@@ -24,5 +24,6 @@ struct CaptureSequenceSample
 };
 
 float captureSequenceDuration(const CaptureResult &result);
+float captureThrowFlightPhaseDuration();
 CaptureSequenceSample sampleCaptureSequence(const CaptureResult &result,
 	                                         float elapsedSeconds);

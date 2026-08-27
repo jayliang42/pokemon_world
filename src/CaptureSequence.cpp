@@ -33,6 +33,11 @@ float captureSequenceDuration(const CaptureResult &result)
 	       RESOLVE_DURATION;
 }
 
+float captureThrowFlightPhaseDuration()
+{
+	return THROW_DURATION;
+}
+
 CaptureSequenceSample sampleCaptureSequence(const CaptureResult &result,
 	                                         float elapsedSeconds)
 {
